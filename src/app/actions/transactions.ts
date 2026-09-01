@@ -1,12 +1,12 @@
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, desc, eq, gte, lte, like, or } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, like, or } from 'drizzle-orm';
 import { startOfMonth, endOfMonth, startOfDay, endOfDay, parse } from 'date-fns';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { transactions } from '@/db/schema';
+import { paymentMethods, transactions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
 
 async function getUser() {
@@ -18,6 +18,27 @@ async function getUser() {
 import { openai, modelName, ExtractionSchema, buildExtractionSystemPrompt } from '@/lib/openai';
 import { CATEGORIES, DEFAULT_CATEGORY, type TransactionType } from '@/lib/categories';
 import { toDateInputValue, parseDateInputValue } from '@/lib/utils';
+
+/** Resolve a single account name → id for the current user. */
+async function resolveMethodId(userId: string, name: string | null | undefined): Promise<string | null> {
+  if (!name) return null;
+  const row = await db.query.paymentMethods.findFirst({
+    where: and(eq(paymentMethods.userId, userId), eq(paymentMethods.name, name), isNull(paymentMethods.archivedAt)),
+    columns: { id: true },
+  });
+  return row?.id ?? null;
+}
+
+/** Resolve multiple names at once → Map<name, id>. */
+async function resolveMethodIds(userId: string, names: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(names.filter(Boolean))];
+  if (!unique.length) return new Map();
+  const rows = await db.query.paymentMethods.findMany({
+    where: and(eq(paymentMethods.userId, userId), inArray(paymentMethods.name, unique), isNull(paymentMethods.archivedAt)),
+    columns: { id: true, name: true },
+  });
+  return new Map(rows.map((r) => [r.name, r.id]));
+}
 
 export interface TransactionDraft {
   amount: number | null;
@@ -126,26 +147,29 @@ export async function saveTransaction(input: SaveTransactionInput) {
   const user = await getUser();
   try {
     const id = randomUUID();
+    const paymentMethodId = await resolveMethodId(user.id, input.paymentMethod);
 
     await db.insert(transactions).values({
       id,
-      userId: user.id,
-      date: parseDateInputValue(input.date),
-      amount: input.amount,
-      type: input.type,
-      category: input.category,
-      merchant: input.merchant,
-      description: input.description,
-      paymentMethod: input.paymentMethod || null,
-      notes: input.notes || null,
-      receiptUrl: input.receiptImage || null,
-      items: input.items || null,
-      rawInput: input.rawInput || null,
-      needsReview: input.needsReview || false,
+      userId:          user.id,
+      date:            parseDateInputValue(input.date),
+      amount:          input.amount,
+      type:            input.type,
+      category:        input.category,
+      merchant:        input.merchant,
+      description:     input.description,
+      paymentMethod:   input.paymentMethod || null,
+      paymentMethodId,
+      notes:           input.notes || null,
+      receiptUrl:      input.receiptImage || null,
+      items:           input.items || null,
+      rawInput:        input.rawInput || null,
+      needsReview:     input.needsReview || false,
     });
 
     revalidatePath('/');
     revalidatePath('/history');
+    revalidatePath('/accounts');
 
     return { success: true, id };
   } catch (error) {
@@ -157,27 +181,32 @@ export async function saveTransaction(input: SaveTransactionInput) {
 export async function saveTransactions(inputs: SaveTransactionInput[]) {
   const user = await getUser();
   try {
+    const names = inputs.map((i) => i.paymentMethod).filter(Boolean) as string[];
+    const idMap = await resolveMethodIds(user.id, names);
+
     const rows = inputs.map((input) => ({
-      id: randomUUID(),
-      userId: user.id,
-      date: parseDateInputValue(input.date),
-      amount: input.amount,
-      type: input.type,
-      category: input.category,
-      merchant: input.merchant,
-      description: input.description,
-      paymentMethod: input.paymentMethod || null,
-      notes: input.notes || null,
-      receiptUrl: input.receiptImage || null,
-      items: input.items || null,
-      rawInput: input.rawInput || null,
-      needsReview: input.needsReview || false,
+      id:              randomUUID(),
+      userId:          user.id,
+      date:            parseDateInputValue(input.date),
+      amount:          input.amount,
+      type:            input.type,
+      category:        input.category,
+      merchant:        input.merchant,
+      description:     input.description,
+      paymentMethod:   input.paymentMethod || null,
+      paymentMethodId: input.paymentMethod ? (idMap.get(input.paymentMethod) ?? null) : null,
+      notes:           input.notes || null,
+      receiptUrl:      input.receiptImage || null,
+      items:           input.items || null,
+      rawInput:        input.rawInput || null,
+      needsReview:     input.needsReview || false,
     }));
 
     await db.insert(transactions).values(rows);
 
     revalidatePath('/');
     revalidatePath('/history');
+    revalidatePath('/accounts');
 
     return { success: true, count: rows.length };
   } catch (error) {

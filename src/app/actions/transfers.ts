@@ -1,13 +1,14 @@
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, desc, eq, gte, lte, like, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, like, lte, or } from 'drizzle-orm';
 import { startOfMonth, endOfMonth, parse } from 'date-fns';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { transfers } from '@/db/schema';
+import { paymentMethods, transfers } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
+import { parseDateInputValue } from '@/lib/utils';
 
 async function getUser() {
   const supabase = await createClient();
@@ -15,7 +16,6 @@ async function getUser() {
   if (!user) redirect('/login');
   return user;
 }
-import { parseDateInputValue } from '@/lib/utils';
 
 export interface TransferInput {
   amount: number;
@@ -39,6 +39,19 @@ function validate(input: TransferInput) {
   return null;
 }
 
+/** Look up account IDs for the given names (returns null if not found). */
+async function resolveAccountIds(userId: string, fromName: string, toName: string) {
+  const rows = await db.query.paymentMethods.findMany({
+    where: and(eq(paymentMethods.userId, userId), isNull(paymentMethods.archivedAt)),
+    columns: { id: true, name: true },
+  });
+  const map = new Map(rows.map((r) => [r.name, r.id]));
+  return {
+    fromAccountId: map.get(fromName) ?? null,
+    toAccountId:   map.get(toName)   ?? null,
+  };
+}
+
 export async function createTransfer(input: TransferInput) {
   const user = await getUser();
   const error = validate(input);
@@ -46,15 +59,20 @@ export async function createTransfer(input: TransferInput) {
 
   try {
     const id = randomUUID();
+    const { fromAccountId, toAccountId } = await resolveAccountIds(
+      user.id, input.fromAccount, input.toAccount,
+    );
 
     await db.insert(transfers).values({
       id,
-      userId: user.id,
-      date: parseDateInputValue(input.date),
-      amount: input.amount,
-      fromAccount: input.fromAccount,
-      toAccount: input.toAccount,
-      note: input.note || null,
+      userId:        user.id,
+      date:          parseDateInputValue(input.date),
+      amount:        input.amount,
+      fromAccount:   input.fromAccount,
+      fromAccountId,
+      toAccount:     input.toAccount,
+      toAccountId,
+      note:          input.note || null,
     });
 
     revalidateAll();
@@ -71,15 +89,21 @@ export async function updateTransfer(id: string, input: TransferInput) {
   if (error) return { success: false, error };
 
   try {
+    const { fromAccountId, toAccountId } = await resolveAccountIds(
+      user.id, input.fromAccount, input.toAccount,
+    );
+
     await db
       .update(transfers)
       .set({
-        date: parseDateInputValue(input.date),
-        amount: input.amount,
-        fromAccount: input.fromAccount,
-        toAccount: input.toAccount,
-        note: input.note || null,
-        updatedAt: new Date(),
+        date:          parseDateInputValue(input.date),
+        amount:        input.amount,
+        fromAccount:   input.fromAccount,
+        fromAccountId,
+        toAccount:     input.toAccount,
+        toAccountId,
+        note:          input.note || null,
+        updatedAt:     new Date(),
       })
       .where(and(eq(transfers.id, id), eq(transfers.userId, user.id)));
 
@@ -110,29 +134,29 @@ export async function getTransfer(id: string) {
   });
 }
 
-export async function listTransfers({ query, month, account }: { query?: string; month?: string; account?: string }) {
+export async function listTransfers({
+  query, month, account,
+}: { query?: string; month?: string; account?: string }) {
   const user = await getUser();
-  let startDate: Date;
-  let endDate: Date;
-
-  if (month) {
-    const parsed = parse(month, 'yyyy-MM', new Date());
-    startDate = startOfMonth(parsed);
-    endDate = endOfMonth(parsed);
-  } else {
-    startDate = startOfMonth(new Date());
-    endDate = endOfMonth(new Date());
-  }
+  const parsed = month ? parse(month, 'yyyy-MM', new Date()) : new Date();
+  const startDate = startOfMonth(parsed);
+  const endDate   = endOfMonth(parsed);
 
   return db.query.transfers.findMany({
     where: and(
       eq(transfers.userId, user.id),
       gte(transfers.date, startDate),
       lte(transfers.date, endDate),
-      account ? or(eq(transfers.fromAccount, account), eq(transfers.toAccount, account)) : undefined,
+      account
+        ? or(eq(transfers.fromAccount, account), eq(transfers.toAccount, account))
+        : undefined,
       query
-        ? or(like(transfers.fromAccount, `%${query}%`), like(transfers.toAccount, `%${query}%`), like(transfers.note, `%${query}%`))
-        : undefined
+        ? or(
+            like(transfers.fromAccount, `%${query}%`),
+            like(transfers.toAccount,   `%${query}%`),
+            like(transfers.note,         `%${query}%`),
+          )
+        : undefined,
     ),
     orderBy: [desc(transfers.date), desc(transfers.createdAt)],
   });
