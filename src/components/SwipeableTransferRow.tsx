@@ -49,10 +49,7 @@ export function SwipeableTransferRow({ transfer, onDeleted }: SwipeableTransferR
 
   function handleTap() {
     if (moved.current) return;
-    if (offset !== 0) {
-      setOffset(0);
-      return;
-    }
+    if (offset !== 0) { setOffset(0); return; }
     router.push(`/transfer/${transfer.id}`);
   }
 
@@ -70,7 +67,7 @@ export function SwipeableTransferRow({ transfer, onDeleted }: SwipeableTransferR
   }
 
   return (
-    <div className="relative overflow-hidden border-b border-line last:border-0">
+    <div className="relative overflow-hidden border-b border-line last:border-0 -mx-6">
       <button
         type="button"
         onClick={handleDelete}
@@ -92,24 +89,22 @@ export function SwipeableTransferRow({ transfer, onDeleted }: SwipeableTransferR
           transition: dragging ? 'none' : 'transform 0.2s ease-out',
           touchAction: 'pan-y',
         }}
-        className="relative bg-paper flex items-center justify-between py-3.5 px-2 cursor-pointer select-none"
+        className="relative bg-paper flex items-center justify-between py-4 px-6 cursor-pointer select-none"
       >
-        <div className="flex items-center gap-3.5 min-w-0">
-          <span className="w-6 h-6 shrink-0 flex items-center justify-center text-ink-faint">
-            <ArrowRightLeft className="h-3.5 w-3.5" />
-          </span>
+        <div className="flex items-center gap-3 min-w-0 flex-1 pr-4">
+          <ArrowRightLeft className="h-3.5 w-3.5 text-ink-faint shrink-0" />
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-semibold text-ink truncate">
+            <span className="text-base font-semibold text-ink truncate leading-snug">
               {transfer.fromAccount} → {transfer.toAccount}
             </span>
-            <span className="text-xs text-ink-faint flex items-center gap-1.5 min-w-0">
-              <span className="uppercase tracking-wide shrink-0">Transfer</span>
-              <span className="w-0.5 h-0.5 rounded-full bg-ink-faint shrink-0" />
-              <span className="shrink-0">{formatDate(transfer.date, { day: 'numeric', month: 'short' })}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint mt-0.5">
+              Transfer · {formatDate(transfer.date, { day: 'numeric', month: 'short' })}
             </span>
           </div>
         </div>
-        <span className="text-sm font-bold tabular-nums shrink-0 ml-2 text-ink-soft">{formatCurrency(transfer.amount)}</span>
+        <span className="text-base font-bold tabular-nums shrink-0 text-ink">
+          {formatCurrency(transfer.amount)}
+        </span>
       </div>
     </div>
   );

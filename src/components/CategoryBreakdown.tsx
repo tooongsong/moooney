@@ -1,45 +1,45 @@
 import { formatCurrency } from '@/lib/utils';
 
-// Theme-aware: reference the CSS custom properties directly so colors flip correctly in dark mode
-// (a literal hex like #18181b would be invisible against a near-black dark background).
-const COLORS = ['var(--accent)', 'var(--ink)', 'var(--ink-soft)', 'var(--ink-faint)', 'var(--line)', 'var(--sand)'];
-
 interface CategoryBreakdownProps {
   data: { name: string; value: number }[];
 }
 
 export function CategoryBreakdown({ data }: CategoryBreakdownProps) {
   if (data.length === 0) {
-    return <div className="text-center py-8 text-sm text-ink-faint border border-dashed border-line">No spending yet this month.</div>;
+    return (
+      <p className="text-3xl font-bold tracking-tighter text-ink-faint leading-tight py-4">
+        NO SPENDING<br />YET.
+      </p>
+    );
   }
 
-  const total = data.reduce((sum, d) => sum + d.value, 0);
-  const top = data.slice(0, 6);
+  const top = data.slice(0, 5);
+  const max = top[0].value;
 
   return (
     <div className="space-y-5">
-      {/* Abstract graphic bar — proportional blocks, no traditional donut/pie */}
-      <div className="flex h-10 w-full gap-0.5">
-        {top.map((entry, index) => (
-          <div
-            key={entry.name}
-            style={{ backgroundColor: COLORS[index % COLORS.length], width: `${Math.max((entry.value / total) * 100, 2)}%` }}
-          />
-        ))}
-      </div>
-
-      <div className="space-y-3">
-        {top.map((entry, index) => (
-          <div key={entry.name} className="flex items-center gap-3 text-sm">
-            <span className="w-2.5 h-2.5 shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
-            <span className="text-ink-soft truncate flex-1 uppercase tracking-wide text-xs font-semibold">{entry.name}</span>
-            <span className="text-ink font-bold tabular-nums shrink-0">{formatCurrency(entry.value)}</span>
-            <span className="text-ink-faint text-xs w-9 text-right shrink-0 tabular-nums">
-              {Math.round((entry.value / total) * 100)}%
+      {top.map((entry, index) => (
+        <div key={entry.name}>
+          <div className="flex items-baseline justify-between mb-2">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">
+              {entry.name}
+            </span>
+            <span className="text-xl font-bold tabular-nums text-ink">
+              {formatCurrency(entry.value)}
             </span>
           </div>
-        ))}
-      </div>
+          <div className="h-2 bg-sand rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${Math.max((entry.value / max) * 100, 2)}%`,
+                backgroundColor: index === 0 ? 'var(--accent)' : 'var(--ink)',
+                opacity: index === 0 ? 1 : Math.max(0.12, 0.55 - index * 0.1),
+              }}
+            />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -26,19 +26,15 @@ export default async function HistoryPage({
 
   return (
     <div className="max-w-md mx-auto px-6 min-h-screen pb-28 bg-paper">
-      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 py-4 border-b-2 border-ink">
+      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 border-b-2 border-ink">
         <h1 className="text-4xl font-bold tracking-tighter text-ink">History</h1>
       </header>
 
-      <section className="pt-2 pb-6 space-y-3">
-        <SearchInput placeholder="Search merchant or description…" />
-        <div className="grid grid-cols-2 gap-3">
-          <MonthFilter />
-          <CategoryFilter categories={categories} />
-        </div>
-        {accountNames.length > 0 && (
-          <AccountFilter accounts={accountNames} />
-        )}
+      <section className="pt-4 pb-6 space-y-4">
+        <SearchInput placeholder="Search…" />
+        <MonthFilter />
+        <CategoryFilter categories={categories} />
+        {accountNames.length > 0 && <AccountFilter accounts={accountNames} />}
       </section>
 
       <section>

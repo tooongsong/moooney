@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRightLeft, Plus, Wallet2 } from 'lucide-react';
+import { ArrowRightLeft, Plus } from 'lucide-react';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { AccountTypeIcon } from '@/components/AccountTypeIcon';
 import { BottomNav } from '@/components/BottomNav';
@@ -23,7 +23,7 @@ export default async function AccountsPage() {
 
   return (
     <div className="max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
-      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 py-4 flex items-center justify-between border-b-2 border-ink">
+      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex items-center justify-between border-b-2 border-ink">
         <h1 className="text-4xl font-bold tracking-tighter text-ink">Accounts</h1>
         {accounts.length >= 2 && (
           <HeaderIconButton href="/transfer" className="-mr-2">
@@ -33,11 +33,12 @@ export default async function AccountsPage() {
       </header>
 
       {accounts.length === 0 ? (
-        <div className="text-center py-16 text-ink-faint text-sm border border-dashed border-line mt-6">
-          <Wallet2 className="h-6 w-6 mx-auto mb-3 text-ink-faint" />
-          <p>No accounts yet.</p>
-          <Link href="/manage" className="inline-block mt-4 text-ink font-medium underline underline-offset-4">
-            Add one in Manage
+        <div className="py-16">
+          <p className="text-3xl font-bold tracking-tighter text-ink-faint leading-tight">
+            NO ACCOUNTS<br />YET.
+          </p>
+          <Link href="/manage" className="inline-block mt-6 text-xs font-bold uppercase tracking-widest text-ink underline underline-offset-4">
+            Add one
           </Link>
         </div>
       ) : (

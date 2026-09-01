@@ -1,50 +1,44 @@
 'use client';
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { useRouter, useSearchParams } from "next/navigation";
-import { format, subMonths } from "date-fns";
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { format, subMonths, addMonths, startOfMonth } from 'date-fns';
 
 export function MonthFilter() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  
-  const currentMonthParam = searchParams.get('month');
+
   const now = new Date();
-  const currentMonthValue = currentMonthParam || format(now, 'yyyy-MM');
+  const param = searchParams.get('month');
+  const currentDate = param ? startOfMonth(new Date(param + '-01')) : startOfMonth(now);
+  const isCurrentMonth = format(currentDate, 'yyyy-MM') === format(now, 'yyyy-MM');
 
-  // Generate last 12 months for options
-  const months = Array.from({ length: 12 }, (_, i) => {
-    const date = subMonths(now, i);
-    return {
-      value: format(date, 'yyyy-MM'),
-      label: format(date, 'MMMM yyyy'),
-    };
-  });
-
-  function handleValueChange(value: string) {
+  function navigate(date: Date) {
     const params = new URLSearchParams(searchParams.toString());
-    params.set('month', value);
+    params.set('month', format(date, 'yyyy-MM'));
     router.push(`?${params.toString()}`);
   }
 
   return (
-    <Select value={currentMonthValue} onValueChange={handleValueChange}>
-      <SelectTrigger className="w-full bg-paper-card border-line rounded-xl shadow-subtle text-ink focus:ring-ink-faint">
-        <SelectValue placeholder="Select Month" />
-      </SelectTrigger>
-      <SelectContent className="rounded-xl border-line">
-        {months.map((month) => (
-          <SelectItem key={month.value} value={month.value} className="text-ink-soft focus:bg-sand">
-            {month.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => navigate(subMonths(currentDate, 1))}
+        className="p-2 -ml-2 text-ink-faint active:text-ink transition-colors"
+        aria-label="Previous month"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <span className="text-sm font-bold uppercase tracking-widest text-ink min-w-[9rem] text-center">
+        {format(currentDate, 'MMMM yyyy')}
+      </span>
+      <button
+        onClick={() => navigate(addMonths(currentDate, 1))}
+        disabled={isCurrentMonth}
+        className="p-2 -mr-2 text-ink-faint active:text-ink transition-colors disabled:opacity-25"
+        aria-label="Next month"
+      >
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </div>
   );
 }

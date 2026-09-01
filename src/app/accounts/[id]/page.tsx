@@ -34,7 +34,7 @@ export default async function AccountDetailPage({
   return (
     <div className="max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 py-4 flex items-center justify-between border-b-2 border-ink">
+      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex items-center justify-between border-b border-line">
         <div className="flex items-center gap-3 min-w-0">
           <Link href="/accounts" className="shrink-0 -ml-1 p-1 text-ink-faint hover:text-ink transition-colors">
             <ChevronLeft className="h-5 w-5" />

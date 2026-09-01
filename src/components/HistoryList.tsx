@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { SearchX } from 'lucide-react';
 import { SwipeableTransactionRow } from '@/components/SwipeableTransactionRow';
 import { SwipeableTransferRow } from '@/components/SwipeableTransferRow';
 import type { HistoryItem } from '@/app/actions/history';
@@ -23,9 +22,13 @@ export function HistoryList({ transactions }: { transactions: HistoryItem[] }) {
 
   if (items.length === 0) {
     return (
-      <div className="text-center py-16 text-ink-faint text-sm border border-dashed border-line rounded-2xl">
-        <SearchX className="h-6 w-6 mx-auto mb-3 text-ink-faint" />
-        <p>No transactions found.</p>
+      <div className="py-16">
+        <p className="text-3xl font-bold tracking-tighter text-ink-faint leading-tight">
+          NOTHING<br />HERE.
+        </p>
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint mt-3">
+          Try different filters
+        </p>
       </div>
     );
   }
