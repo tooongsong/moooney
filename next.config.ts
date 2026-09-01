@@ -9,9 +9,6 @@ const withPWA = require("next-pwa")({
 });
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
-  turbopack: {},
-  serverExternalPackages: ['@libsql/client'],
   // Lets the dev server be reached from your phone over LAN (e.g. testing "Add to Home Screen" on iPhone).
   allowedDevOrigins: ['192.168.0.0/16', '10.0.0.0/8'],
   experimental: {

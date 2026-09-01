@@ -3,9 +3,18 @@
 import { randomUUID } from 'crypto';
 import { and, desc, eq, gte, lte, like, or } from 'drizzle-orm';
 import { startOfMonth, endOfMonth, parse } from 'date-fns';
+import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { transfers } from '@/db/schema';
+import { createClient } from '@/lib/supabase/server';
+
+async function getUser() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
+  return user;
+}
 import { parseDateInputValue } from '@/lib/utils';
 
 export interface TransferInput {
@@ -31,22 +40,21 @@ function validate(input: TransferInput) {
 }
 
 export async function createTransfer(input: TransferInput) {
+  const user = await getUser();
   const error = validate(input);
   if (error) return { success: false, error };
 
   try {
-    const now = new Date();
     const id = randomUUID();
 
     await db.insert(transfers).values({
       id,
+      userId: user.id,
       date: parseDateInputValue(input.date),
       amount: input.amount,
       fromAccount: input.fromAccount,
       toAccount: input.toAccount,
       note: input.note || null,
-      createdAt: now,
-      updatedAt: now,
     });
 
     revalidateAll();
@@ -58,6 +66,7 @@ export async function createTransfer(input: TransferInput) {
 }
 
 export async function updateTransfer(id: string, input: TransferInput) {
+  const user = await getUser();
   const error = validate(input);
   if (error) return { success: false, error };
 
@@ -72,7 +81,7 @@ export async function updateTransfer(id: string, input: TransferInput) {
         note: input.note || null,
         updatedAt: new Date(),
       })
-      .where(eq(transfers.id, id));
+      .where(and(eq(transfers.id, id), eq(transfers.userId, user.id)));
 
     revalidateAll();
     return { success: true };
@@ -83,8 +92,9 @@ export async function updateTransfer(id: string, input: TransferInput) {
 }
 
 export async function deleteTransfer(id: string) {
+  const user = await getUser();
   try {
-    await db.delete(transfers).where(eq(transfers.id, id));
+    await db.delete(transfers).where(and(eq(transfers.id, id), eq(transfers.userId, user.id)));
     revalidateAll();
     return { success: true };
   } catch (error) {
@@ -94,10 +104,14 @@ export async function deleteTransfer(id: string) {
 }
 
 export async function getTransfer(id: string) {
-  return db.query.transfers.findFirst({ where: eq(transfers.id, id) });
+  const user = await getUser();
+  return db.query.transfers.findFirst({
+    where: and(eq(transfers.id, id), eq(transfers.userId, user.id)),
+  });
 }
 
 export async function listTransfers({ query, month, account }: { query?: string; month?: string; account?: string }) {
+  const user = await getUser();
   let startDate: Date;
   let endDate: Date;
 
@@ -112,9 +126,9 @@ export async function listTransfers({ query, month, account }: { query?: string;
 
   return db.query.transfers.findMany({
     where: and(
+      eq(transfers.userId, user.id),
       gte(transfers.date, startDate),
       lte(transfers.date, endDate),
-      // A transfer touches an account whether it's the source or the destination.
       account ? or(eq(transfers.fromAccount, account), eq(transfers.toAccount, account)) : undefined,
       query
         ? or(like(transfers.fromAccount, `%${query}%`), like(transfers.toAccount, `%${query}%`), like(transfers.note, `%${query}%`))

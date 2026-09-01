@@ -1,8 +1,9 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { pgTable, text, real, boolean, uuid, jsonb, timestamp } from 'drizzle-orm/pg-core';
 
-export const transactions = sqliteTable('transactions', {
+export const transactions = pgTable('transactions', {
   id: text('id').primaryKey(),
-  date: integer('date', { mode: 'timestamp' }).notNull(),
+  userId: uuid('user_id').notNull(),
+  date: timestamp('date').notNull(),
   amount: real('amount').notNull(),
   type: text('type', { enum: ['expense', 'income', 'refund'] }).notNull().default('expense'),
   category: text('category').notNull(),
@@ -11,43 +12,46 @@ export const transactions = sqliteTable('transactions', {
   paymentMethod: text('payment_method'),
   notes: text('notes'),
   receiptUrl: text('receipt_url'),
-  items: text('items', { mode: 'json' }).$type<{ name: string; price: number | null }[]>(),
+  items: jsonb('items').$type<{ name: string; price: number | null }[]>(),
   rawInput: text('raw_input'),
-  needsReview: integer('needs_review', { mode: 'boolean' }).notNull().default(false),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  needsReview: boolean('needs_review').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;
 
-export const paymentMethods = sqliteTable('payment_methods', {
+export const paymentMethods = pgTable('payment_methods', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
   name: text('name').notNull(),
   startingBalance: real('starting_balance').notNull().default(0),
   type: text('type', { enum: ['cash', 'bank', 'credit_card'] }).notNull().default('bank'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 export type PaymentMethod = typeof paymentMethods.$inferSelect;
 
-export const customCategories = sqliteTable('custom_categories', {
+export const customCategories = pgTable('custom_categories', {
   id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
   name: text('name').notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
 export type CustomCategory = typeof customCategories.$inferSelect;
 
-export const transfers = sqliteTable('transfers', {
+export const transfers = pgTable('transfers', {
   id: text('id').primaryKey(),
-  date: integer('date', { mode: 'timestamp' }).notNull(),
+  userId: uuid('user_id').notNull(),
+  date: timestamp('date').notNull(),
   amount: real('amount').notNull(),
   fromAccount: text('from_account').notNull(),
   toAccount: text('to_account').notNull(),
   note: text('note'),
-  createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 export type Transfer = typeof transfers.$inferSelect;

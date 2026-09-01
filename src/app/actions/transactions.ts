@@ -3,9 +3,18 @@
 import { randomUUID } from 'crypto';
 import { and, desc, eq, gte, lte, like, or } from 'drizzle-orm';
 import { startOfMonth, endOfMonth, startOfDay, endOfDay, parse } from 'date-fns';
+import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { transactions } from '@/db/schema';
+import { createClient } from '@/lib/supabase/server';
+
+async function getUser() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
+  return user;
+}
 import { openai, modelName, ExtractionSchema, buildExtractionSystemPrompt } from '@/lib/openai';
 import { CATEGORIES, DEFAULT_CATEGORY, type TransactionType } from '@/lib/categories';
 import { toDateInputValue, parseDateInputValue } from '@/lib/utils';
@@ -114,12 +123,13 @@ export interface SaveTransactionInput {
 }
 
 export async function saveTransaction(input: SaveTransactionInput) {
+  const user = await getUser();
   try {
-    const now = new Date();
     const id = randomUUID();
 
     await db.insert(transactions).values({
       id,
+      userId: user.id,
       date: parseDateInputValue(input.date),
       amount: input.amount,
       type: input.type,
@@ -132,8 +142,6 @@ export async function saveTransaction(input: SaveTransactionInput) {
       items: input.items || null,
       rawInput: input.rawInput || null,
       needsReview: input.needsReview || false,
-      createdAt: now,
-      updatedAt: now,
     });
 
     revalidatePath('/');
@@ -147,11 +155,11 @@ export async function saveTransaction(input: SaveTransactionInput) {
 }
 
 export async function saveTransactions(inputs: SaveTransactionInput[]) {
+  const user = await getUser();
   try {
-    const now = new Date();
-
     const rows = inputs.map((input) => ({
       id: randomUUID(),
+      userId: user.id,
       date: parseDateInputValue(input.date),
       amount: input.amount,
       type: input.type,
@@ -164,8 +172,6 @@ export async function saveTransactions(inputs: SaveTransactionInput[]) {
       items: input.items || null,
       rawInput: input.rawInput || null,
       needsReview: input.needsReview || false,
-      createdAt: now,
-      updatedAt: now,
     }));
 
     await db.insert(transactions).values(rows);
@@ -222,10 +228,14 @@ export async function deleteTransaction(id: string) {
 }
 
 export async function getTransaction(id: string) {
-  return db.query.transactions.findFirst({ where: eq(transactions.id, id) });
+  const user = await getUser();
+  return db.query.transactions.findFirst({
+    where: and(eq(transactions.id, id), eq(transactions.userId, user.id)),
+  });
 }
 
 export async function getHomeData() {
+  const user = await getUser();
   const now = new Date();
   const monthStart = startOfMonth(now);
   const monthEnd = endOfMonth(now);
@@ -234,9 +244,10 @@ export async function getHomeData() {
 
   const [monthTxns, recent] = await Promise.all([
     db.query.transactions.findMany({
-      where: and(gte(transactions.date, monthStart), lte(transactions.date, monthEnd)),
+      where: and(eq(transactions.userId, user.id), gte(transactions.date, monthStart), lte(transactions.date, monthEnd)),
     }),
     db.query.transactions.findMany({
+      where: eq(transactions.userId, user.id),
       orderBy: [desc(transactions.date), desc(transactions.createdAt)],
       limit: 5,
     }),
@@ -285,6 +296,7 @@ export async function listTransactions({
   category?: string;
   account?: string;
 }) {
+  const user = await getUser();
   let startDate: Date;
   let endDate: Date;
 
@@ -297,8 +309,9 @@ export async function listTransactions({
     endDate = endOfMonth(new Date());
   }
 
-  const data = await db.query.transactions.findMany({
+  return db.query.transactions.findMany({
     where: and(
+      eq(transactions.userId, user.id),
       gte(transactions.date, startDate),
       lte(transactions.date, endDate),
       category ? eq(transactions.category, category) : undefined,
@@ -307,6 +320,4 @@ export async function listTransactions({
     ),
     orderBy: [desc(transactions.date), desc(transactions.createdAt)],
   });
-
-  return data;
 }

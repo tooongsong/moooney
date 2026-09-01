@@ -1,8 +1,17 @@
 'use server';
 
-import { asc } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
+import { redirect } from 'next/navigation';
 import { db } from '@/db';
-import { paymentMethods } from '@/db/schema';
+import { paymentMethods, transactions, transfers } from '@/db/schema';
+import { createClient } from '@/lib/supabase/server';
+
+async function getUser() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
+  return user;
+}
 
 export interface AccountBalance {
   id: string;
@@ -13,10 +22,17 @@ export interface AccountBalance {
 }
 
 export async function getAccountBalances(): Promise<AccountBalance[]> {
-  const accounts = await db.query.paymentMethods.findMany({ orderBy: [asc(paymentMethods.name)] });
+  const user = await getUser();
+  const accounts = await db.query.paymentMethods.findMany({
+    where: eq(paymentMethods.userId, user.id),
+    orderBy: [asc(paymentMethods.name)],
+  });
   if (accounts.length === 0) return [];
 
-  const [rows, transferRows] = await Promise.all([db.query.transactions.findMany(), db.query.transfers.findMany()]);
+  const [rows, transferRows] = await Promise.all([
+    db.query.transactions.findMany({ where: eq(transactions.userId, user.id) }),
+    db.query.transfers.findMany({ where: eq(transfers.userId, user.id) }),
+  ]);
 
   return accounts.map((account) => {
     let delta = 0;

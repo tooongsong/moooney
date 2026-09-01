@@ -10,6 +10,7 @@ import {
   addCustomCategory,
   deleteCustomCategory,
 } from '@/app/actions/manage';
+import { signOut } from '@/app/actions/auth';
 import { getAccountBalances } from '@/app/actions/accounts';
 import { formatCurrency } from '@/lib/utils';
 import { CATEGORIES } from '@/lib/categories';
@@ -56,6 +57,12 @@ export default async function ManagePage() {
           onAdd={addCustomCategory}
           onDelete={deleteCustomCategory}
         />
+
+        <form action={signOut}>
+          <button type="submit" className="text-sm text-ink-faint hover:text-ink-soft transition-colors">
+            Sign out
+          </button>
+        </form>
       </div>
     </div>
   );
