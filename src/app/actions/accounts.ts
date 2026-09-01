@@ -4,6 +4,7 @@ import { asc, eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
 import { paymentMethods, transactions, transfers } from '@/db/schema';
+import { ASSET_TYPES, LIABILITY_TYPES } from '@/lib/accountTypes';
 import { createClient } from '@/lib/supabase/server';
 
 async function getUser() {
@@ -19,6 +20,7 @@ export interface AccountBalance {
   type: string;
   startingBalance: number;
   balance: number;
+  isLiability: boolean;
 }
 
 export async function getAccountBalances(): Promise<AccountBalance[]> {
@@ -41,8 +43,6 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
       if (t.type === 'income' || t.type === 'refund') delta += t.amount;
       else if (t.type === 'expense') delta -= t.amount;
     }
-    // Transfers move money between accounts — they never touch income/expense totals,
-    // only shift balance from one account to another.
     for (const tr of transferRows) {
       if (tr.fromAccount === account.name) delta -= tr.amount;
       if (tr.toAccount === account.name) delta += tr.amount;
@@ -53,6 +53,8 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
       type: account.type,
       startingBalance: account.startingBalance,
       balance: account.startingBalance + delta,
+      isLiability: LIABILITY_TYPES.has(account.type),
     };
   });
 }
+

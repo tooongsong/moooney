@@ -5,7 +5,7 @@ import { asc, eq } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { paymentMethods, customCategories } from '@/db/schema';
+import { paymentMethods, customCategories, transactions } from '@/db/schema';
 import { CATEGORIES } from '@/lib/categories';
 import type { AccountType } from '@/lib/accountTypes';
 import { createClient } from '@/lib/supabase/server';
@@ -25,7 +25,7 @@ export async function listPaymentMethods() {
   });
 }
 
-export async function addPaymentMethod(name: string, startingBalance = 0, type: AccountType = 'bank') {
+export async function addPaymentMethod(name: string, startingBalance = 0, type: AccountType = 'checking') {
   const user = await getUser();
   const trimmed = name.trim();
   if (!trimmed) return { success: false, error: 'Name is required' };
@@ -48,6 +48,13 @@ export async function addPaymentMethod(name: string, startingBalance = 0, type: 
 }
 
 export async function deletePaymentMethod(id: string) {
+  const account = await db.query.paymentMethods.findFirst({ where: eq(paymentMethods.id, id) });
+  if (account) {
+    const linked = await db.query.transactions.findFirst({
+      where: eq(transactions.paymentMethod, account.name),
+    });
+    if (linked) return { success: false, error: 'This account has transactions — reassign them first.' };
+  }
   await db.delete(paymentMethods).where(eq(paymentMethods.id, id));
   revalidatePath('/manage');
   revalidatePath('/accounts');

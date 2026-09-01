@@ -27,7 +27,7 @@ export const paymentMethods = pgTable('payment_methods', {
   userId: uuid('user_id').notNull(),
   name: text('name').notNull(),
   startingBalance: numeric('starting_balance', { precision: 12, scale: 2 }).notNull().default('0').$type<number>(),
-  type: text('type', { enum: ['cash', 'bank', 'credit_card'] }).notNull().default('bank'),
+  type: text('type', { enum: ['cash', 'bank', 'checking', 'savings', 'investment', 'credit_card', 'loan', 'mortgage'] }).notNull().default('checking'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

@@ -41,7 +41,7 @@ export function ManageList({
   const [list, setList] = useState(items);
   const [value, setValue] = useState('');
   const [balanceValue, setBalanceValue] = useState('');
-  const [typeValue, setTypeValue] = useState<AccountType>('bank');
+  const [typeValue, setTypeValue] = useState<AccountType>('checking');
   const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
