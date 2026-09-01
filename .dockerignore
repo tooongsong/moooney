@@ -1,0 +1,32 @@
+# Build
+.next
+.open-next
+
+# Dependencies
+node_modules
+
+# Development
+.env*.local
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test
+coverage
+.nyc_output
+
+# Misc
+*.md
+!README.md
