@@ -1,4 +1,5 @@
 import { signIn, signUp } from '@/app/actions/auth';
+import { GoogleButton } from './GoogleButton';
 
 export default async function LoginPage({
   searchParams,
@@ -13,6 +14,17 @@ export default async function LoginPage({
         <div className="space-y-1">
           <h1 className="text-3xl font-black tracking-tight text-ink">moooney</h1>
           <p className="text-sm text-ink-soft">Sign in to your account</p>
+        </div>
+
+        <GoogleButton />
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-ink/20" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-paper px-2 text-xs text-ink-soft">or</span>
+          </div>
         </div>
 
         <form action={signIn} className="space-y-4">
