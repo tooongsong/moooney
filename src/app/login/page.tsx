@@ -1,4 +1,3 @@
-import { signIn, signUp } from '@/app/actions/auth';
 import { GoogleButton } from './GoogleButton';
 
 export default async function LoginPage({
@@ -17,72 +16,6 @@ export default async function LoginPage({
         </div>
 
         <GoogleButton />
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-ink/20" />
-          </div>
-          <div className="relative flex justify-center">
-            <span className="bg-paper px-2 text-xs text-ink-soft">or</span>
-          </div>
-        </div>
-
-        <form action={signIn} className="space-y-4">
-          {error && (
-            <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>
-          )}
-          <div className="space-y-2">
-            <input
-              name="email"
-              type="email"
-              placeholder="Email"
-              required
-              autoComplete="email"
-              className="w-full px-3 py-2.5 border-2 border-ink rounded-lg bg-paper text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-ink/20 text-sm"
-            />
-            <input
-              name="password"
-              type="password"
-              placeholder="Password"
-              required
-              autoComplete="current-password"
-              className="w-full px-3 py-2.5 border-2 border-ink rounded-lg bg-paper text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-ink/20 text-sm"
-            />
-          </div>
-          <button
-            type="submit"
-            className="w-full py-2.5 bg-ink text-paper font-semibold rounded-lg text-sm hover:bg-ink/90 active:scale-95 transition-all"
-          >
-            Sign in
-          </button>
-        </form>
-
-        <form action={signUp} className="space-y-4">
-          <div className="space-y-2">
-            <input
-              name="email"
-              type="email"
-              placeholder="Email"
-              required
-              autoComplete="email"
-              className="w-full px-3 py-2.5 border-2 border-ink rounded-lg bg-paper text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-ink/20 text-sm"
-            />
-            <input
-              name="password"
-              type="password"
-              placeholder="Password"
-              required
-              autoComplete="new-password"
-              className="w-full px-3 py-2.5 border-2 border-ink rounded-lg bg-paper text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-ink/20 text-sm"
-            />
-          </div>
-          <button
-            type="submit"
-            className="w-full py-2.5 border-2 border-ink text-ink font-semibold rounded-lg text-sm hover:bg-ink/5 active:scale-95 transition-all"
-          >
-            Create account
-          </button>
-        </form>
       </div>
     </div>
   );
