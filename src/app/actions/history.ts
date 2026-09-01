@@ -11,17 +11,17 @@ export async function listHistoryItems({
   month,
   category,
   account,
+  allTime,
 }: {
   query?: string;
   month?: string;
   category?: string;
   account?: string;
+  allTime?: boolean;
 }): Promise<HistoryItem[]> {
   const [txns, transferRows] = await Promise.all([
-    listTransactions({ query, month, category, account }),
-    // A category filter only makes sense for transactions — transfers have no category,
-    // so they drop out of the list rather than showing up under every filter.
-    category ? Promise.resolve([]) : listTransfers({ query, month, account }),
+    listTransactions({ query, month, category, account, allTime }),
+    category ? Promise.resolve([]) : listTransfers({ query, month, account, allTime }),
   ]);
 
   const merged: HistoryItem[] = [

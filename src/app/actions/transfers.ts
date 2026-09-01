@@ -135,18 +135,23 @@ export async function getTransfer(id: string) {
 }
 
 export async function listTransfers({
-  query, month, account,
-}: { query?: string; month?: string; account?: string }) {
+  query, month, account, allTime,
+}: { query?: string; month?: string; account?: string; allTime?: boolean }) {
   const user = await getUser();
-  const parsed = month ? parse(month, 'yyyy-MM', new Date()) : new Date();
-  const startDate = startOfMonth(parsed);
-  const endDate   = endOfMonth(parsed);
+
+  let dateFilter;
+  if (!allTime) {
+    const parsed = month ? parse(month, 'yyyy-MM', new Date()) : new Date();
+    dateFilter = and(
+      gte(transfers.date, startOfMonth(parsed)),
+      lte(transfers.date, endOfMonth(parsed)),
+    );
+  }
 
   return db.query.transfers.findMany({
     where: and(
       eq(transfers.userId, user.id),
-      gte(transfers.date, startDate),
-      lte(transfers.date, endDate),
+      dateFilter,
       account
         ? or(eq(transfers.fromAccount, account), eq(transfers.toAccount, account))
         : undefined,

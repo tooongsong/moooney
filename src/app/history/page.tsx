@@ -1,11 +1,11 @@
 import { SearchInput } from '@/components/SearchInput';
 import { MonthFilter } from '@/components/MonthFilter';
 import { CategoryFilter } from '@/components/CategoryFilter';
-import { AccountFilterChip } from '@/components/AccountFilterChip';
+import { AccountFilter } from '@/components/AccountFilter';
 import { HistoryList } from '@/components/HistoryList';
 import { BottomNav } from '@/components/BottomNav';
 import { listHistoryItems } from '@/app/actions/history';
-import { getAllCategories } from '@/app/actions/manage';
+import { getAllCategories, getPaymentMethodNames } from '@/app/actions/manage';
 
 export default async function HistoryPage({
   searchParams,
@@ -13,14 +13,15 @@ export default async function HistoryPage({
   searchParams: Promise<{ q?: string; month?: string; category?: string; account?: string }>;
 }) {
   const params = await searchParams;
-  const [data, categories] = await Promise.all([
+  const [data, categories, accountNames] = await Promise.all([
     listHistoryItems({
-      query: params.q,
-      month: params.month,
+      query:    params.q,
+      month:    params.month,
       category: params.category,
-      account: params.account,
+      account:  params.account,
     }),
     getAllCategories(),
+    getPaymentMethodNames(),
   ]);
 
   return (
@@ -35,7 +36,9 @@ export default async function HistoryPage({
           <MonthFilter />
           <CategoryFilter categories={categories} />
         </div>
-        <AccountFilterChip />
+        {accountNames.length > 0 && (
+          <AccountFilter accounts={accountNames} />
+        )}
       </section>
 
       <section>

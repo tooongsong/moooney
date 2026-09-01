@@ -84,7 +84,7 @@ export default async function AccountsPage() {
                   {group.accounts.map((account) => (
                     <Link
                       key={account.id}
-                      href={`/history?account=${encodeURIComponent(account.name)}`}
+                      href={`/accounts/${account.id}`}
                       className="py-4 flex items-center justify-between gap-3 hover:bg-sand/50 -mx-2 px-2 transition-colors"
                     >
                       <span className="flex items-center gap-2.5 min-w-0">

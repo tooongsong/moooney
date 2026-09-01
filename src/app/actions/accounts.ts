@@ -1,6 +1,7 @@
 'use server';
 
-import { asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, lte, or } from 'drizzle-orm';
+import { startOfMonth, endOfMonth } from 'date-fns';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
 import { paymentMethods, transactions, transfers } from '@/db/schema';
@@ -24,6 +25,11 @@ export interface AccountBalance {
   startingBalance: number;
   balance: number;
   isLiability: boolean;
+}
+
+export interface AccountDetail extends AccountBalance {
+  thisMonthIn: number;
+  thisMonthOut: number;
 }
 
 export async function getAccountBalances(): Promise<AccountBalance[]> {
@@ -81,4 +87,71 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
       isLiability:     LIABILITY_TYPES.has(account.type),
     };
   });
+}
+
+export async function getAccountDetail(id: string): Promise<AccountDetail | null> {
+  const user = await getUser();
+  const account = await db.query.paymentMethods.findFirst({
+    where: and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id)),
+  });
+  if (!account || account.archivedAt) return null;
+
+  const now = new Date();
+  const monthStart = startOfMonth(now);
+  const monthEnd   = endOfMonth(now);
+
+  // Match by ID; fall back to name for any un-backfilled legacy rows
+  const txFilter = or(
+    eq(transactions.paymentMethodId, account.id),
+    and(isNull(transactions.paymentMethodId), eq(transactions.paymentMethod, account.name)),
+  );
+  const trFilter = or(
+    eq(transfers.fromAccountId, account.id),
+    eq(transfers.toAccountId,   account.id),
+    and(isNull(transfers.fromAccountId), eq(transfers.fromAccount, account.name)),
+    and(isNull(transfers.toAccountId),   eq(transfers.toAccount,   account.name)),
+  );
+
+  const [allTxns, allTr, monthTxns] = await Promise.all([
+    db.query.transactions.findMany({ where: and(eq(transactions.userId, user.id), txFilter) }),
+    db.query.transfers.findMany({ where: and(eq(transfers.userId, user.id), trFilter) }),
+    db.query.transactions.findMany({
+      where: and(
+        eq(transactions.userId, user.id),
+        txFilter,
+        gte(transactions.date, monthStart),
+        lte(transactions.date, monthEnd),
+      ),
+    }),
+  ]);
+
+  let delta = 0;
+  for (const t of allTxns) {
+    if (t.type === 'income' || t.type === 'refund') delta += t.amount;
+    else if (t.type === 'expense') delta -= t.amount;
+  }
+  for (const tr of allTr) {
+    if ((tr.fromAccountId ?? tr.fromAccount) === (account.id ?? account.name)) delta -= tr.amount;
+    if ((tr.toAccountId   ?? tr.toAccount)   === (account.id ?? account.name)) delta += tr.amount;
+  }
+
+  let thisMonthIn = 0, thisMonthOut = 0;
+  for (const t of monthTxns) {
+    if (t.type === 'income' || t.type === 'refund') thisMonthIn  += t.amount;
+    else if (t.type === 'expense')                   thisMonthOut += t.amount;
+  }
+
+  return {
+    id:           account.id,
+    name:         account.name,
+    type:         account.type,
+    institution:  account.institution,
+    currency:     account.currency,
+    creditLimit:  account.creditLimit,
+    startingBalance: account.startingBalance,
+    balance:      account.startingBalance + delta,
+    isLiability:  LIABILITY_TYPES.has(account.type),
+    thisMonthIn,
+    thisMonthOut,
+  };
 }

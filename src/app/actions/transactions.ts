@@ -319,33 +319,32 @@ export async function listTransactions({
   month,
   category,
   account,
+  allTime,
 }: {
   query?: string;
   month?: string;
   category?: string;
   account?: string;
+  allTime?: boolean;
 }) {
   const user = await getUser();
-  let startDate: Date;
-  let endDate: Date;
 
-  if (month) {
-    const parsed = parse(month, 'yyyy-MM', new Date());
-    startDate = startOfMonth(parsed);
-    endDate = endOfMonth(parsed);
-  } else {
-    startDate = startOfMonth(new Date());
-    endDate = endOfMonth(new Date());
+  let dateFilter;
+  if (!allTime) {
+    const parsed = month ? parse(month, 'yyyy-MM', new Date()) : new Date();
+    dateFilter = and(
+      gte(transactions.date, startOfMonth(parsed)),
+      lte(transactions.date, endOfMonth(parsed)),
+    );
   }
 
   return db.query.transactions.findMany({
     where: and(
       eq(transactions.userId, user.id),
-      gte(transactions.date, startDate),
-      lte(transactions.date, endDate),
+      dateFilter,
       category ? eq(transactions.category, category) : undefined,
       account ? eq(transactions.paymentMethod, account) : undefined,
-      query ? or(like(transactions.merchant, `%${query}%`), like(transactions.description, `%${query}%`)) : undefined
+      query ? or(like(transactions.merchant, `%${query}%`), like(transactions.description, `%${query}%`)) : undefined,
     ),
     orderBy: [desc(transactions.date), desc(transactions.createdAt)],
   });
