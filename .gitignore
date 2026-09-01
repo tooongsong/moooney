@@ -47,3 +47,7 @@ next-env.d.ts
 
 # local sqlite database
 /data
+
+# next-pwa build artifacts
+/public/sw.js
+/public/workbox-*.js
