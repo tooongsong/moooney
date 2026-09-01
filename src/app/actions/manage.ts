@@ -111,6 +111,15 @@ export async function getPaymentMethodNames(): Promise<string[]> {
   return rows.map((r) => r.name);
 }
 
+export async function getAccountsForTransfer(): Promise<{ name: string; type: string }[]> {
+  const user = await getUser();
+  const rows = await db.query.paymentMethods.findMany({
+    where: and(eq(paymentMethods.userId, user.id), isNull(paymentMethods.archivedAt)),
+    orderBy: [asc(paymentMethods.name)],
+  });
+  return rows.map((r) => ({ name: r.name, type: r.type }));
+}
+
 // ─── Custom Categories ────────────────────────────────────────────────────────
 
 export async function listCustomCategories() {

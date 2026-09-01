@@ -13,6 +13,7 @@ interface Item {
   name: string;
   subtitle?: string;
   type?: string;
+  institution?: string;
 }
 
 interface ManageListProps {
@@ -23,7 +24,7 @@ interface ManageListProps {
   builtIn?: string[];
   withStartingBalance?: boolean;
   withAccountType?: boolean;
-  onAdd: (name: string, startingBalance?: number, type?: AccountType) => Promise<{ success: boolean; error?: string }>;
+  onAdd: (name: string, startingBalance?: number, type?: AccountType, institution?: string, creditLimit?: number) => Promise<{ success: boolean; error?: string }>;
   onDelete: (id: string) => Promise<{ success: boolean }>;
 }
 
@@ -42,15 +43,27 @@ export function ManageList({
   const [value, setValue] = useState('');
   const [balanceValue, setBalanceValue] = useState('');
   const [typeValue, setTypeValue] = useState<AccountType>('checking');
+  const [institutionValue, setInstitutionValue] = useState('');
+  const [creditLimitValue, setCreditLimitValue] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const isCreditCard = typeValue === 'credit_card';
 
   async function handleAdd() {
     const name = value.trim();
     if (!name || isAdding) return;
     setIsAdding(true);
     const startingBalance = balanceValue ? parseFloat(balanceValue) : 0;
-    const result = await onAdd(name, startingBalance, withAccountType ? typeValue : undefined);
+    const institution = institutionValue.trim() || undefined;
+    const creditLimit = creditLimitValue ? parseFloat(creditLimitValue) : undefined;
+    const result = await onAdd(
+      name,
+      startingBalance,
+      withAccountType ? typeValue : undefined,
+      institution,
+      creditLimit,
+    );
     setIsAdding(false);
     if (result.success) {
       setList((prev) =>
@@ -61,14 +74,21 @@ export function ManageList({
             name,
             subtitle: withStartingBalance ? `$${startingBalance.toFixed(2)}` : undefined,
             type: withAccountType ? typeValue : undefined,
+            institution,
           },
         ].sort((a, b) => a.name.localeCompare(b.name))
       );
       setValue('');
       setBalanceValue('');
+      setInstitutionValue('');
+      setCreditLimitValue('');
     } else {
       toast.error(result.error || 'Could not add');
     }
+  }
+
+  function onEnter(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') { e.preventDefault(); handleAdd(); }
   }
 
   async function handleDelete(id: string) {
@@ -87,16 +107,12 @@ export function ManageList({
       <h2 className="text-sm font-medium text-ink">{title}</h2>
       <p className="text-xs text-ink-faint mb-4">{description}</p>
 
+      {/* Name + balance row */}
       <div className="flex gap-2 mb-3">
         <Input
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              handleAdd();
-            }
-          }}
+          onKeyDown={onEnter}
           placeholder={placeholder}
           className="rounded-xl border-line bg-paper-card text-sm h-10"
         />
@@ -104,12 +120,7 @@ export function ManageList({
           <Input
             value={balanceValue}
             onChange={(e) => setBalanceValue(e.target.value.replace(/[^0-9.-]/g, ''))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                handleAdd();
-              }
-            }}
+            onKeyDown={onEnter}
             inputMode="decimal"
             placeholder="Balance"
             className="rounded-xl border-line bg-paper-card text-sm h-10 w-24 shrink-0"
@@ -125,8 +136,9 @@ export function ManageList({
         </button>
       </div>
 
+      {/* Account type pills */}
       {withAccountType && (
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-3">
           {ACCOUNT_TYPES.map((t) => (
             <button
               key={t.value}
@@ -144,6 +156,30 @@ export function ManageList({
         </div>
       )}
 
+      {/* Institution + credit limit (only for account type form) */}
+      {withAccountType && (
+        <div className="flex gap-2 mb-4">
+          <Input
+            value={institutionValue}
+            onChange={(e) => setInstitutionValue(e.target.value)}
+            onKeyDown={onEnter}
+            placeholder="Institution (optional)"
+            className="rounded-xl border-line bg-paper-card text-sm h-10"
+          />
+          {isCreditCard && (
+            <Input
+              value={creditLimitValue}
+              onChange={(e) => setCreditLimitValue(e.target.value.replace(/[^0-9.]/g, ''))}
+              onKeyDown={onEnter}
+              inputMode="decimal"
+              placeholder="Credit limit"
+              className="rounded-xl border-line bg-paper-card text-sm h-10 w-32 shrink-0"
+            />
+          )}
+        </div>
+      )}
+
+      {/* Built-in items */}
       {builtIn && builtIn.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-3">
           {builtIn.map((name) => (
@@ -154,15 +190,21 @@ export function ManageList({
         </div>
       )}
 
+      {/* Account list */}
       {list.length > 0 && (
         <div className="rounded-2xl border border-line bg-paper-card divide-y divide-line overflow-hidden">
           {list.map((item) => (
             <div key={item.id} className="flex items-center justify-between px-4 py-2.5">
-              <span className="text-sm text-ink flex items-center gap-2">
-                {withAccountType && item.type && <AccountTypeIcon type={item.type} className="h-3.5 w-3.5 text-ink-faint" />}
-                {item.name}
+              <span className="flex items-center gap-2 min-w-0">
+                {withAccountType && item.type && <AccountTypeIcon type={item.type} className="h-3.5 w-3.5 text-ink-faint shrink-0" />}
+                <span className="min-w-0">
+                  <span className="block text-sm text-ink truncate">{item.name}</span>
+                  {item.institution && (
+                    <span className="block text-xs text-ink-faint truncate">{item.institution}</span>
+                  )}
+                </span>
               </span>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 shrink-0">
                 {item.subtitle && <span className="text-xs text-ink-faint tabular-nums">{item.subtitle}</span>}
                 <button
                   type="button"

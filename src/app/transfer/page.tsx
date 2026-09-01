@@ -5,19 +5,19 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
-import { TransferForm, type TransferFormValues } from '@/components/TransferForm';
+import { TransferForm, type TransferFormValues, type AccountOption } from '@/components/TransferForm';
 import { PageHeader } from '@/components/PageHeader';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { createTransfer, type TransferInput } from '@/app/actions/transfers';
-import { getPaymentMethodNames } from '@/app/actions/manage';
+import { getAccountsForTransfer } from '@/app/actions/manage';
 import { toDateInputValue } from '@/lib/utils';
 
 export default function TransferPage() {
   const router = useRouter();
-  const [accounts, setAccounts] = useState<string[] | null>(null);
+  const [accounts, setAccounts] = useState<AccountOption[] | null>(null);
 
   useEffect(() => {
-    getPaymentMethodNames().then(setAccounts);
+    getAccountsForTransfer().then(setAccounts);
   }, []);
 
   async function handleSave(input: TransferInput) {

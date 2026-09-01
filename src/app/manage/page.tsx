@@ -37,7 +37,7 @@ export default async function ManagePage() {
             placeholder="e.g. Chase Sapphire"
             withStartingBalance
             withAccountType
-            items={accounts.map((a) => ({ id: a.id, name: a.name, subtitle: formatCurrency(a.balance), type: a.type }))}
+            items={accounts.map((a) => ({ id: a.id, name: a.name, subtitle: formatCurrency(a.balance), type: a.type, institution: a.institution ?? undefined }))}
             onAdd={addPaymentMethod}
             onDelete={deletePaymentMethod}
           />

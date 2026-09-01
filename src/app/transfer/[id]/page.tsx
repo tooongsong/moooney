@@ -2,7 +2,7 @@ import { ArrowLeft } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { getTransfer } from '@/app/actions/transfers';
-import { getPaymentMethodNames } from '@/app/actions/manage';
+import { getAccountsForTransfer } from '@/app/actions/manage';
 import { TransferDetailClient } from '@/components/TransferDetailClient';
 import { DeleteTransferButton } from '@/components/DeleteTransferButton';
 
@@ -12,7 +12,7 @@ export default async function TransferDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [transfer, accounts] = await Promise.all([getTransfer(id), getPaymentMethodNames()]);
+  const [transfer, accounts] = await Promise.all([getTransfer(id), getAccountsForTransfer()]);
 
   if (!transfer) {
     return (
