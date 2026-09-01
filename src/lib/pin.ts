@@ -6,8 +6,12 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// If APP_SECRET is not set, fall back to a random value generated at boot.
+// Sessions won't survive server restarts, but no known string is exposed in the source.
+const runtimeSecret = crypto.randomUUID();
+
 function getSecret(): string {
-  return process.env.APP_SECRET || 'moooney-default-secret';
+  return process.env.APP_SECRET ?? runtimeSecret;
 }
 
 export async function computeToken(pin: string): Promise<string> {
