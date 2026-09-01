@@ -7,40 +7,64 @@ import { createClient } from '@/lib/supabase/client';
 function UpdatePasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [ready, setReady] = useState(false);
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [exchangeError, setExchangeError] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [error, setError] = useState('');
+  const [submitError, setSubmitError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const code = searchParams.get('code');
-    if (!code) { setReady(true); return; }
-    const supabase = createClient();
-    supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
-      if (error) setError(error.message);
-      setReady(true);
+    const supabase = createClient(); // singleton
+    if (!code) {
+      // Already have a session? (e.g. came from server-side exchange)
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setStatus(session ? 'ready' : 'error');
+        if (!session) setExchangeError('No valid reset link. Request a new password reset email.');
+      });
+      return;
+    }
+    supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
+      if (error || !data.session) {
+        setExchangeError(error?.message ?? 'Reset link is invalid or expired. Request a new one.');
+        setStatus('error');
+      } else {
+        setStatus('ready');
+      }
     });
   }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password !== confirm) { setError('Passwords do not match.'); return; }
-    if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
-    setError('');
+    if (password !== confirm) { setSubmitError('Passwords do not match.'); return; }
+    if (password.length < 6) { setSubmitError('Password must be at least 6 characters.'); return; }
+    setSubmitError('');
     setLoading(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error } = await createClient().auth.updateUser({ password });
     setLoading(false);
     if (error) {
-      setError(error.message);
+      setSubmitError(error.message);
     } else {
       router.push('/');
       router.refresh();
     }
   }
 
-  if (!ready) return <p className="text-sm text-ink-faint">Verifying link…</p>;
+  if (status === 'loading') {
+    return <p className="text-sm text-ink-faint">Verifying link…</p>;
+  }
+
+  if (status === 'error') {
+    return (
+      <div className="space-y-3">
+        <p className="text-xs text-accent bg-accent/10 rounded-lg px-3 py-2">{exchangeError}</p>
+        <a href="/login" className="block text-center text-xs text-ink-faint hover:text-ink underline underline-offset-4">
+          Back to login
+        </a>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
@@ -60,8 +84,8 @@ function UpdatePasswordForm() {
         onChange={(e) => setConfirm(e.target.value)}
         className="w-full px-4 py-2.5 border-2 border-line rounded-lg bg-paper text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:border-ink"
       />
-      {error && (
-        <p className="text-xs text-accent bg-accent/10 rounded-lg px-3 py-2">{error}</p>
+      {submitError && (
+        <p className="text-xs text-accent bg-accent/10 rounded-lg px-3 py-2">{submitError}</p>
       )}
       <button
         type="submit"
