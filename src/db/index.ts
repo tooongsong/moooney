@@ -2,26 +2,28 @@ import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from './schema';
 
-const globalForDb = globalThis as unknown as { __pgClient?: ReturnType<typeof postgres> };
+type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
+const g = globalThis as { __db?: DrizzleDb };
 
-const client =
-  globalForDb.__pgClient ??
-  postgres(process.env.DATABASE_URL!, {
-    prepare: false,
-    // Parse NUMERIC columns as JS numbers (default is string). Safe because
-    // all monetary columns are NUMERIC(12,2) — no precision loss with parseFloat.
-    types: {
-      numeric: {
-        to: 1700,
-        from: [1700],
-        serialize: (x: number | string) => String(x),
-        parse: (x: string) => parseFloat(x),
-      },
-    },
-  });
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForDb.__pgClient = client;
-}
-
-export const db = drizzle(client, { schema });
+// Lazy init: postgres() parses the URL immediately, so deferring it to first
+// property access lets the Next.js build succeed without DATABASE_URL set.
+export const db = new Proxy({} as DrizzleDb, {
+  get(_, key: string | symbol) {
+    if (!g.__db) {
+      const client = postgres(process.env.DATABASE_URL!, {
+        prepare: false,
+        // Parse NUMERIC columns as JS numbers (default is string).
+        types: {
+          numeric: {
+            to: 1700,
+            from: [1700],
+            serialize: (x: number | string) => String(x),
+            parse: (x: string) => parseFloat(x),
+          },
+        },
+      });
+      g.__db = drizzle(client, { schema });
+    }
+    return (g.__db as unknown as Record<string | symbol, unknown>)[key];
+  },
+});
