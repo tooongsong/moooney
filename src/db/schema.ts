@@ -1,10 +1,10 @@
-import { pgTable, text, real, boolean, uuid, jsonb, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, numeric, boolean, uuid, jsonb, timestamp } from 'drizzle-orm/pg-core';
 
 export const transactions = pgTable('transactions', {
   id: text('id').primaryKey(),
   userId: uuid('user_id').notNull(),
   date: timestamp('date').notNull(),
-  amount: real('amount').notNull(),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull().$type<number>(),
   type: text('type', { enum: ['expense', 'income', 'refund'] }).notNull().default('expense'),
   category: text('category').notNull(),
   merchant: text('merchant').notNull(),
@@ -26,7 +26,7 @@ export const paymentMethods = pgTable('payment_methods', {
   id: text('id').primaryKey(),
   userId: uuid('user_id').notNull(),
   name: text('name').notNull(),
-  startingBalance: real('starting_balance').notNull().default(0),
+  startingBalance: numeric('starting_balance', { precision: 12, scale: 2 }).notNull().default('0').$type<number>(),
   type: text('type', { enum: ['cash', 'bank', 'credit_card'] }).notNull().default('bank'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
@@ -46,7 +46,7 @@ export const transfers = pgTable('transfers', {
   id: text('id').primaryKey(),
   userId: uuid('user_id').notNull(),
   date: timestamp('date').notNull(),
-  amount: real('amount').notNull(),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull().$type<number>(),
   fromAccount: text('from_account').notNull(),
   toAccount: text('to_account').notNull(),
   note: text('note'),

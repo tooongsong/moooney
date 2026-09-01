@@ -5,7 +5,7 @@ create table if not exists payment_methods (
   id text primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
-  starting_balance real not null default 0,
+  starting_balance numeric(12,2) not null default 0,
   type text not null default 'bank',
   created_at timestamptz not null default now()
 );
@@ -17,7 +17,7 @@ create table if not exists transactions (
   id text primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   date timestamptz not null,
-  amount real not null,
+  amount numeric(12,2) not null,
   type text not null default 'expense',
   category text not null,
   merchant text not null,
@@ -49,7 +49,7 @@ create table if not exists transfers (
   id text primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   date timestamptz not null,
-  amount real not null,
+  amount numeric(12,2) not null,
   from_account text not null,
   to_account text not null,
   note text,
