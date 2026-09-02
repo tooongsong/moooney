@@ -3,11 +3,15 @@ import { z } from 'zod';
 import { CATEGORIES } from './categories';
 import { toDateInputValue } from './utils';
 
-const apiKey = process.env.OPENAI_API_KEY;
-const baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
+const rawKey  = process.env.OPENAI_API_KEY;
+const apiKey  = rawKey?.trim();          // strip accidental \n / whitespace
+const baseURL = process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1';
 
 if (!apiKey) {
-  console.warn('Missing OPENAI_API_KEY environment variable.');
+  console.warn('[openai] OPENAI_API_KEY is not set.');
+} else if (rawKey !== apiKey) {
+  // Key had whitespace — trimmed silently; operator should fix the env var
+  console.warn('[openai] OPENAI_API_KEY had leading/trailing whitespace and was trimmed. Fix the value in .env.local or Vercel Environment Variables.');
 }
 
 export const openai = new OpenAI({ apiKey, baseURL });

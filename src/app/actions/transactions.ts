@@ -123,8 +123,15 @@ export async function extractDraft(input: {
 
     return { success: true, drafts };
   } catch (error) {
+    // Log full error server-side (never sent to client)
     console.error('extractDraft error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    // Sanitize: if the raw message references auth headers or keys, replace it.
+    // This prevents API key values from leaking through error messages.
+    const raw = error instanceof Error ? error.message : '';
+    const safe = /bearer|api.?key|authorization|sk-/i.test(raw)
+      ? 'Receipt recognition failed. Please try again.'
+      : raw || 'Unknown error';
+    return { success: false, error: safe };
   }
 }
 
