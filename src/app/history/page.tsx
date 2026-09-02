@@ -26,7 +26,7 @@ export default async function HistoryPage({
   ]);
 
   return (
-    <div className="d-max-xl max-w-md mx-auto px-6 min-h-screen pb-28 bg-paper">
+    <div className="d-max-xl max-lg:max-w-md mx-auto px-6 min-h-screen pb-28 bg-paper">
 
       {/* QuickAddIsland — mobile only */}
       <div className="d-mobile-only">

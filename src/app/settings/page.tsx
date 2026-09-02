@@ -39,7 +39,7 @@ export default async function SettingsPage() {
   ]);
 
   return (
-    <div className="d-max-md max-w-md mx-auto px-6 min-h-screen bg-paper pb-16">
+    <div className="d-max-md max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper pb-16">
       {/* Back */}
       <div className="pt-5 pb-2 flex items-center gap-3">
         <Link href="/" className="text-ink-faint hover:text-ink transition-colors -ml-1">

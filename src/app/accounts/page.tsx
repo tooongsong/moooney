@@ -22,7 +22,7 @@ export default async function AccountsPage() {
   })).filter((g) => g.accounts.length > 0);
 
   return (
-    <div className="d-max-lg max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
+    <div className="d-max-lg max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
 
       <div className="d-mobile-only">
         <QuickAddIsland />

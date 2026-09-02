@@ -171,7 +171,7 @@ export default function AddPage() {
   const showConfirm = drafts !== null || manualMode;
 
   return (
-    <div className="d-max-md max-w-md mx-auto px-6 min-h-screen bg-paper flex flex-col">
+    <div className="d-max-md max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper flex flex-col">
       <PageHeader
         left={
           <HeaderIconButton className="-ml-2" onClick={() => (showConfirm ? reset() : router.push('/'))}>
