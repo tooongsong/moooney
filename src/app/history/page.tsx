@@ -4,6 +4,7 @@ import { CategoryFilter } from '@/components/CategoryFilter';
 import { AccountFilter } from '@/components/AccountFilter';
 import { HistoryList } from '@/components/HistoryList';
 import { BottomNav } from '@/components/BottomNav';
+import { QuickAddIsland } from '@/components/QuickAddIsland';
 import { listHistoryItems } from '@/app/actions/history';
 import { getAllCategories, getPaymentMethodNames } from '@/app/actions/manage';
 
@@ -29,6 +30,8 @@ export default async function HistoryPage({
       <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 border-b-2 border-ink">
         <h1 className="text-4xl font-bold tracking-tighter text-ink">History</h1>
       </header>
+
+      <QuickAddIsland />
 
       <section className="pt-4 pb-6 space-y-4">
         <SearchInput placeholder="Search…" />

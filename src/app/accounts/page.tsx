@@ -3,6 +3,7 @@ import { ArrowRightLeft, Plus } from 'lucide-react';
 import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { AccountTypeIcon } from '@/components/AccountTypeIcon';
 import { BottomNav } from '@/components/BottomNav';
+import { QuickAddIsland } from '@/components/QuickAddIsland';
 import { getAccountBalances } from '@/app/actions/accounts';
 import { ACCOUNT_GROUPS, computeNetWorth } from '@/lib/accountTypes';
 import { formatCurrency } from '@/lib/utils';
@@ -31,6 +32,8 @@ export default async function AccountsPage() {
           </HeaderIconButton>
         )}
       </header>
+
+      <QuickAddIsland />
 
       {accounts.length === 0 ? (
         <div className="py-16">
