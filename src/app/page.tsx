@@ -27,7 +27,7 @@ export default async function HomePage() {
 
   return (
     <div className="max-w-md mx-auto px-6 min-h-screen pb-28 bg-paper">
-      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex items-center justify-between border-b-2 border-ink">
+      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-3 flex items-center justify-between">
         <span className="text-xs text-ink-faint font-semibold uppercase tracking-widest">
           {formatDate(new Date(), { month: 'long', year: 'numeric' })}
         </span>

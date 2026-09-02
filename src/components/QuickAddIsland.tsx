@@ -1,154 +1,116 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Loader2, X } from 'lucide-react';
+import { ArrowUp, Camera, Check, ImagePlus, Loader2, PenLine, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { animate, motion, useMotionValue, useTransform } from 'motion/react';
-import { cn, toDateInputValue } from '@/lib/utils';
-import { saveTransaction } from '@/app/actions/transactions';
-import { getAllCategories, getPaymentMethodNames } from '@/app/actions/manage';
+import { toDateInputValue } from '@/lib/utils';
+import { extractDraft, saveTransaction, type TransactionDraft } from '@/app/actions/transactions';
 import { DEFAULT_CATEGORY } from '@/lib/categories';
 
-// ── physics (calibrated from BottomSheet / SwiftUI hero studies) ─────────────
-// Open: snappy spring with slight overshoot
+// ── physics ───────────────────────────────────────────────────────────────────
 const SPRING_OPEN  = { type: 'spring' as const, stiffness: 380, damping: 30, mass: 1 };
-// Close: stiffer, decisive
 const SPRING_CLOSE = { type: 'spring' as const, stiffness: 440, damping: 36, mass: 1 };
 
 // ── geometry ──────────────────────────────────────────────────────────────────
-const PILL_W   = 108;
-const PILL_H   = 36;
-const PANEL_H  = 460;
-const HEADER_H = 48;
+const PILL_H     = 48;   // collapsed height px
+const EXPANDED_H = 268;  // expanded height px
+const HEADER_H   = 40;   // drag-handle strip height
+const THRESHOLD  = 0.30;
+const VEL_OPEN   =  380;
+const VEL_CLOSE  = -380;
 
-// ── thresholds (BottomSheet: 0.30 dismiss, dead zone before that) ─────────────
-const THRESHOLD = 0.30;
-const VEL_OPEN  =  380; // px/s downward flick → snap open
-const VEL_CLOSE = -380; // px/s upward flick  → snap closed
+type IslandState = 'collapsed' | 'expanded' | 'parsing' | 'reviewing' | 'saving' | 'success';
 
-type UIState = 'collapsed' | 'expanded' | 'saving' | 'success';
-
-// iOS asymptotic rubber-band: maximum overdrag approaches a fixed ceiling
-// x: normalized progress value possibly outside [0,1]
+// ── helpers ───────────────────────────────────────────────────────────────────
 function rubberBand(x: number): number {
   if (x >= 0 && x <= 1) return x;
-  if (x > 1) {
-    const excess = x - 1;
-    return 1 + 0.25 * (1 - 1 / (excess * 4 + 1));
-  }
-  const excess = -x;
-  return -(0.25 * (1 - 1 / (excess * 4 + 1)));
+  if (x > 1) { const e = x - 1; return 1 + 0.25 * (1 - 1 / (e * 4 + 1)); }
+  const e = -x; return -(0.25 * (1 - 1 / (e * 4 + 1)));
+}
+function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
+function clamp01(v: number)                    { return Math.max(0, Math.min(1, v)); }
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
-function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
-function clamp01(v: number)                     { return Math.max(0, Math.min(1, v)); }
-
-// ─────────────────────────────────────────────────────────────────────────────
+// ── component ─────────────────────────────────────────────────────────────────
 export function QuickAddIsland() {
   const router = useRouter();
 
-  // Measure available width on mount / resize
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const [expandedW, setExpandedW] = useState(360);
-  useEffect(() => {
-    const measure = () => {
-      if (wrapperRef.current) setExpandedW(Math.min(wrapperRef.current.offsetWidth, 400));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    if (wrapperRef.current) ro.observe(wrapperRef.current);
-    return () => ro.disconnect();
-  }, []);
+  // Hidden file inputs
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const fileRef   = useRef<HTMLInputElement>(null);
+  const textRef   = useRef<HTMLTextAreaElement>(null);
 
-  // ── single progress value drives ALL geometry (SwiftUI matched-geometry pattern) ──
-  // 0 = pill, 1 = fully expanded panel
+  // progress 0→1: single motion value drives ALL geometry
   const progress = useMotionValue(0);
 
-  // Panel shell — all derived from the same progress so it morphs as one object
-  const panelWidth  = useTransform(progress, (p) => lerp(PILL_W, expandedW, clamp01(p)));
-  const panelHeight = useTransform(progress, (p) => lerp(PILL_H, PANEL_H,   clamp01(p)));
+  // ── geometry transforms ────────────────────────────────────────────────────
+  // Height: pill → panel
+  const panelH = useTransform(progress, (p) => lerp(PILL_H, EXPANDED_H, clamp01(p)));
 
-  // Radius: ease-out so the "pill identity" dissolves quickly at the start of drag
-  const radius = useTransform(progress, (p) => {
-    const eased = 1 - (1 - clamp01(p)) ** 2;
-    return lerp(9999, 24, eased);
-  });
+  // Organic shape: top corners stay 20px; bottom corners 12→24px (relaxes as panel grows)
+  // This gives the collapsed bar a "docked" feel — connected to content below.
+  const radTL = useTransform(progress, (p) => lerp(20, 24, clamp01(p)));
+  const radTR = useTransform(progress, (p) => lerp(20, 24, clamp01(p)));
+  const radBL = useTransform(progress, (p) => lerp(12, 24, clamp01(p)));
+  const radBR = useTransform(progress, (p) => lerp(12, 24, clamp01(p)));
 
-  // Pill label: out by 20%
-  const pillOp = useTransform(progress, [0, 0.20], [1, 0]);
+  // Pill content: fades out at 20%
+  const pillOp = useTransform(progress, [0, 0.18], [1, 0]);
 
-  // ── staggered content reveal (SwiftAnimPlayground pattern) ───────────────────
-  // Each layer has an offset input window on the same [0,1] progress axis.
-  // During drag the reveals flow naturally; spring settle after release feels alive.
-  const headerOp   = useTransform(progress, [0.30, 0.52], [0, 1]);
-  const headerY    = useTransform(progress, [0.30, 0.52], [-6, 0]);
-  const amountOp   = useTransform(progress, [0.42, 0.62], [0, 1]);
-  const amountY    = useTransform(progress, [0.42, 0.62], [10, 0]);
-  const merchantOp = useTransform(progress, [0.52, 0.70], [0, 1]);
-  const merchantY  = useTransform(progress, [0.52, 0.70], [8,  0]);
-  const chipsOp    = useTransform(progress, [0.62, 0.80], [0, 1]);
-  const chipsY     = useTransform(progress, [0.62, 0.80], [6,  0]);
-  const saveOp     = useTransform(progress, [0.72, 0.90], [0, 1]);
-  const saveY      = useTransform(progress, [0.72, 0.90], [6,  0]);
+  // Expanded content: staggered fade-up per section
+  const headerOp   = useTransform(progress, [0.28, 0.48], [0, 1]);
+  const headerY    = useTransform(progress, [0.28, 0.48], [-4, 0]);
+  const inputOp    = useTransform(progress, [0.40, 0.62], [0, 1]);
+  const inputY     = useTransform(progress, [0.40, 0.62], [8, 0]);
+  const modeOp     = useTransform(progress, [0.55, 0.78], [0, 1]);
 
-  // ── form state ─────────────────────────────────────────────────────────────
-  const [uiState,       setUiState]       = useState<UIState>('collapsed');
-  const [amount,        setAmount]        = useState('');
-  const [merchant,      setMerchant]      = useState('');
-  const [category,      setCategory]      = useState<string>(DEFAULT_CATEGORY);
-  const [paymentMethod, setPaymentMethod] = useState('');
-  const [categories,    setCategories]    = useState<string[]>([]);
-  const [methods,       setMethods]       = useState<string[]>([]);
-  const [dataLoaded,    setDataLoaded]    = useState(false);
-  const amountRef = useRef<HTMLInputElement>(null);
+  // ── UI state ───────────────────────────────────────────────────────────────
+  const [state,  setState]  = useState<IslandState>('collapsed');
+  const [text,   setText]   = useState('');
+  const [draft,  setDraft]  = useState<TransactionDraft | null>(null);
+  const isExpanded = state !== 'collapsed';
 
   useEffect(() => {
-    if (uiState !== 'collapsed' && !dataLoaded) {
-      Promise.all([getAllCategories(), getPaymentMethodNames()]).then(([cats, meths]) => {
-        setCategories(cats);
-        setMethods(meths);
-        if (meths.length === 1) setPaymentMethod(meths[0]);
-        setDataLoaded(true);
-      });
-    }
-  }, [uiState, dataLoaded]);
-
-  useEffect(() => {
-    if (uiState === 'expanded') {
-      const t = setTimeout(() => amountRef.current?.focus(), 340);
+    if (state === 'expanded') {
+      const t = setTimeout(() => textRef.current?.focus(), 340);
       return () => clearTimeout(t);
     }
-  }, [uiState]);
+  }, [state]);
 
-  // ── spring snaps ──────────────────────────────────────────────────────────
+  // ── spring snaps ───────────────────────────────────────────────────────────
   const openIsland = useCallback(() => {
-    setUiState('expanded');
+    setState('expanded');
     animate(progress, 1, SPRING_OPEN);
   }, [progress]);
 
   const closeIsland = useCallback(() => {
     animate(progress, 0, SPRING_CLOSE).then(() => {
-      setUiState('collapsed');
-      setAmount('');
-      setMerchant('');
-      setCategory(DEFAULT_CATEGORY);
-      setPaymentMethod('');
+      setState('collapsed');
+      setText('');
+      setDraft(null);
     });
   }, [progress]);
 
-  // ── drag gesture ──────────────────────────────────────────────────────────
-  // Direct manipulation: geometry follows finger CONTINUOUSLY.
-  // Spring fires only AFTER release.
+  // ── drag gesture ───────────────────────────────────────────────────────────
   const dragging = useRef(false);
   const startY   = useRef(0);
   const startP   = useRef(0);
   const prevY    = useRef(0);
   const prevT    = useRef(0);
-  const vel      = useRef(0); // px/s, positive = downward
+  const vel      = useRef(0);
 
   const onDown = useCallback((e: React.PointerEvent) => {
-    if (uiState === 'saving' || uiState === 'success') return;
+    if (state === 'saving' || state === 'success') return;
     dragging.current = true;
     startY.current   = e.clientY;
     startP.current   = progress.get();
@@ -157,231 +119,319 @@ export function QuickAddIsland() {
     vel.current      = 0;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     e.preventDefault();
-  }, [uiState, progress]);
+  }, [state, progress]);
 
   const onMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current) return;
-
-    // Velocity (exponential moving average for stability)
     const dt = e.timeStamp - prevT.current;
     if (dt > 0) {
-      const instantV = (e.clientY - prevY.current) / (dt / 1000);
-      vel.current = vel.current * 0.6 + instantV * 0.4; // EMA smoothing
+      const iv = (e.clientY - prevY.current) / (dt / 1000);
+      vel.current = vel.current * 0.6 + iv * 0.4;
     }
     prevY.current = e.clientY;
     prevT.current = e.timeStamp;
-
-    // Map drag delta → progress, then apply rubber-band beyond [0,1]
-    const dy  = e.clientY - startY.current;
-    const raw = startP.current + dy / (PANEL_H - PILL_H);
-    progress.set(rubberBand(raw)); // direct, no spring
+    const raw = startP.current + (e.clientY - startY.current) / (EXPANDED_H - PILL_H);
+    progress.set(rubberBand(raw));
   }, [progress]);
 
   const onUp = useCallback(() => {
     if (!dragging.current) return;
     dragging.current = false;
-
     const p = progress.get();
     const v = vel.current;
-
-    if (uiState === 'collapsed') {
-      // tap = < 8px travel → open
-      const travelPx = Math.abs(p - startP.current) * (PANEL_H - PILL_H);
-      if (travelPx < 8 || p > THRESHOLD || v > VEL_OPEN) {
-        openIsland();
-      } else {
-        animate(progress, 0, SPRING_CLOSE);
-      }
+    if (state === 'collapsed') {
+      const travelPx = Math.abs(p - startP.current) * (EXPANDED_H - PILL_H);
+      if (travelPx < 8 || p > THRESHOLD || v > VEL_OPEN) { openIsland(); }
+      else { animate(progress, 0, SPRING_CLOSE); }
     } else {
-      // from expanded: drag up past threshold or fast flick → close
-      if (p < 1 - THRESHOLD || v < VEL_CLOSE) {
-        closeIsland();
-      } else {
-        animate(progress, 1, SPRING_OPEN);
-      }
+      if (p < 1 - THRESHOLD || v < VEL_CLOSE) { closeIsland(); }
+      else { animate(progress, 1, SPRING_OPEN); }
     }
-  }, [progress, uiState, openIsland, closeIsland]);
+  }, [progress, state, openIsland, closeIsland]);
 
-  // ── save ──────────────────────────────────────────────────────────────────
-  const amountNum = parseFloat(amount);
-  const canSave   = !isNaN(amountNum) && amountNum > 0 && merchant.trim().length > 0 && uiState === 'expanded';
-
-  async function handleSave() {
-    if (!canSave) return;
-    setUiState('saving');
-    const result = await saveTransaction({
-      amount:        amountNum,
-      merchant:      merchant.trim(),
-      category,
-      date:          toDateInputValue(),
-      type:          'expense',
-      description:   merchant.trim(),
-      paymentMethod: paymentMethod || null,
-      notes:         null,
-      items:         null,
-      receiptImage:  null,
-      needsReview:   false,
-    });
-    if (result.success) {
-      setUiState('success');
-      setTimeout(() => { closeIsland(); router.refresh(); }, 850);
+  // ── AI extraction ──────────────────────────────────────────────────────────
+  async function extractText() {
+    if (!text.trim()) return;
+    setState('parsing');
+    const res = await extractDraft({ text: text.trim() });
+    if (res.success && res.drafts.length > 0) {
+      setDraft(res.drafts[0]);
+      setState('reviewing');
     } else {
-      setUiState('expanded');
-      toast.error(result.error || 'Could not save');
+      setState('expanded');
+      toast.error(res.success ? 'Nothing found — try rephrasing.' : res.error);
     }
   }
 
-  const chip       = 'shrink-0 h-7 px-3 rounded-full text-[9px] font-bold uppercase tracking-widest whitespace-nowrap transition-colors';
-  const isExpanded = uiState !== 'collapsed';
+  async function extractImage(file: File) {
+    setState('parsing');
+    try {
+      const b64 = await fileToBase64(file);
+      const res  = await extractDraft({ imageBase64: b64 });
+      if (res.success && res.drafts.length > 0) {
+        setDraft({ ...res.drafts[0], receiptImage: b64 });
+        setState('reviewing');
+      } else {
+        setState('expanded');
+        toast.error(res.success ? 'Nothing found in image.' : res.error);
+      }
+    } catch {
+      setState('expanded');
+      toast.error('Could not read image.');
+    }
+  }
 
-  // ── render ────────────────────────────────────────────────────────────────
+  // ── save ───────────────────────────────────────────────────────────────────
+  async function handleSave() {
+    if (!draft) return;
+    setState('saving');
+    const res = await saveTransaction({
+      amount:        draft.amount ?? 0,
+      merchant:      draft.merchant ?? 'Unknown',
+      category:      draft.category || DEFAULT_CATEGORY,
+      date:          draft.date || toDateInputValue(),
+      type:          draft.type || 'expense',
+      description:   draft.description || draft.merchant || 'Transaction',
+      paymentMethod: draft.paymentMethod || null,
+      notes:         null,
+      items:         draft.items || null,
+      receiptImage:  draft.receiptImage || null,
+      needsReview:   draft.needsReview || false,
+    });
+    if (res.success) {
+      setState('success');
+      setTimeout(() => { closeIsland(); router.refresh(); }, 900);
+    } else {
+      setState('reviewing');
+      toast.error(res.error || 'Could not save');
+    }
+  }
+
+  // ── render ─────────────────────────────────────────────────────────────────
+  const today = toDateInputValue();
+
   return (
-    <div ref={wrapperRef} className="flex justify-center mt-3 mb-1">
+    <>
+      {/* Hidden file inputs — outside the animated panel so they're never clipped */}
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+        className="hidden" onChange={(e) => { if (e.target.files?.[0]) extractImage(e.target.files[0]); e.target.value = ''; }} />
+      <input ref={fileRef}   type="file" accept="image/*"
+        className="hidden" onChange={(e) => { if (e.target.files?.[0]) extractImage(e.target.files[0]); e.target.value = ''; }} />
+
       {/*
         One motion.div = one continuous object.
-        motion values in `style` are managed outside React's render cycle,
-        so state changes (setUiState) never reset animated dimensions.
+        Full-width within page padding (aligned to page content).
+        Organic shape: top corners 20px, bottom corners 12px when collapsed
+                       (12→24px as panel opens — bottom "relaxes").
       */}
       <motion.div
         style={{
-          width:        panelWidth,
-          height:       panelHeight,
-          borderRadius: radius,
-          background:   'var(--ink)',
-          position:     'relative',
-          overflow:     'hidden',
-          touchAction:  'none',
-          userSelect:   'none',
+          height:                  panelH,
+          borderTopLeftRadius:     radTL,
+          borderTopRightRadius:    radTR,
+          borderBottomLeftRadius:  radBL,
+          borderBottomRightRadius: radBR,
+          background:  'var(--ink)',
+          position:    'relative',
+          overflow:    'hidden',
+          touchAction: 'none',
+          userSelect:  'none',
+          width:       '100%',
         }}
+        className="mt-2 mb-4"
       >
-        {/* ── COLLAPSED PILL LAYER ─────────────────────────────────────────── */}
-        {/* Drag and tap target when collapsed */}
+        {/* ── COLLAPSED: compact dark bar ───────────────────────────────── */}
         <motion.div
-          className="absolute inset-0 flex items-center justify-center cursor-pointer text-paper"
-          style={{ opacity: pillOp, pointerEvents: isExpanded ? 'none' : 'auto' }}
+          className="absolute inset-0 flex items-center px-4 gap-3"
+          style={{ opacity: pillOp, pointerEvents: isExpanded ? 'none' : 'auto', cursor: 'pointer' }}
           onPointerDown={!isExpanded ? onDown : undefined}
           onPointerMove={!isExpanded ? onMove : undefined}
           onPointerUp={!isExpanded   ? onUp   : undefined}
-          onPointerCancel={!isExpanded ? onUp : undefined}
+          onPointerCancel={!isExpanded ? onUp  : undefined}
         >
-          <span className="text-[10px] font-bold uppercase tracking-widest select-none">
-            + Add
+          {/* Accent dot — the single color moment in the dark bar */}
+          <span className="shrink-0 w-5 h-5 rounded-full bg-accent flex items-center justify-center">
+            <span className="text-white text-[10px] font-bold leading-none">+</span>
           </span>
+          <span className="flex-1 text-sm font-medium text-paper/40 select-none">
+            What did you spend?
+          </span>
+          {/* Camera shortcut in collapsed state */}
+          <button
+            className="shrink-0 text-paper/25 active:text-paper/60 transition-colors"
+            style={{ pointerEvents: 'auto' }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); cameraRef.current?.click(); }}
+          >
+            <Camera className="h-4 w-4" />
+          </button>
         </motion.div>
 
-        {/* ── EXPANDED PANEL CONTENT ───────────────────────────────────────── */}
-        {/* pointerEvents disabled while collapsed so pill layer handles gestures cleanly */}
+        {/* ── EXPANDED PANEL ────────────────────────────────────────────── */}
         <div
           className="absolute inset-0 flex flex-col"
           style={{ pointerEvents: isExpanded ? 'auto' : 'none' }}
         >
-          {/* Header — also the drag handle when expanded */}
+          {/* Drag handle / header */}
           <motion.div
-            className="shrink-0 flex items-center justify-between px-5 relative cursor-grab active:cursor-grabbing"
+            className="shrink-0 relative flex items-center justify-between px-4 cursor-grab active:cursor-grabbing"
             style={{ height: HEADER_H, opacity: headerOp, y: headerY, touchAction: 'none' }}
             onPointerDown={isExpanded ? onDown : undefined}
             onPointerMove={isExpanded ? onMove : undefined}
             onPointerUp={isExpanded   ? onUp   : undefined}
             onPointerCancel={isExpanded ? onUp  : undefined}
           >
-            {/* Drag indicator bar */}
-            <div className="absolute left-0 right-0 top-2.5 mx-auto w-8 h-0.5 rounded-full bg-paper/20 pointer-events-none" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-paper/50 select-none">
+            {/* Pill indicator */}
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-paper/20 pointer-events-none" />
+            <span className="text-[9px] font-bold uppercase tracking-widest text-paper/35 select-none mt-1">
               Quick add
             </span>
             <button
               onClick={closeIsland}
-              className="p-1 -mr-1 text-paper/50 hover:text-paper transition-colors"
+              className="p-1 -mr-1 text-paper/35 hover:text-paper/70 transition-colors mt-1"
               style={{ touchAction: 'auto' }}
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
             </button>
           </motion.div>
 
-          {/* Scrollable form — staggered reveal per section */}
-          <div className="flex-1 overflow-y-auto px-5 pb-5" style={{ touchAction: 'pan-y' }}>
-
-            {/* Amount — appears first */}
+          {/* ── INPUT state ── */}
+          {(state === 'expanded') && (
             <motion.div
-              className="flex items-end gap-1 mb-5"
-              style={{ opacity: amountOp, y: amountY }}
+              className="flex flex-col flex-1 px-4 pb-4"
+              style={{ opacity: inputOp, y: inputY }}
             >
-              <span className="text-2xl text-paper/30 font-light mb-0.5 leading-none">$</span>
-              <input
-                ref={amountRef}
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-                onKeyDown={(e) => { if (e.key === 'Enter' && canSave) handleSave(); }}
-                placeholder="0.00"
-                className="flex-1 text-5xl font-bold tracking-tighter bg-transparent outline-none placeholder:text-paper/20 text-paper leading-none min-w-0"
-                style={{ touchAction: 'auto' }}
-              />
-            </motion.div>
+              {/* Natural language text area */}
+              <div className="flex items-start gap-2 flex-1">
+                <textarea
+                  ref={textRef}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && text.trim()) {
+                      e.preventDefault();
+                      extractText();
+                    }
+                  }}
+                  placeholder={'Target 43.28 home supplies\nLunch $28.50\nCostco 86 groceries'}
+                  rows={3}
+                  className="flex-1 bg-transparent outline-none text-paper text-sm font-medium placeholder:text-paper/20 resize-none leading-relaxed"
+                  style={{ touchAction: 'pan-y' }}
+                />
+                {text.trim() && (
+                  <motion.button
+                    onClick={extractText}
+                    initial={{ opacity: 0, scale: 0.7 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="shrink-0 w-8 h-8 rounded-full bg-accent flex items-center justify-center active:scale-90 transition-transform mt-0.5"
+                  >
+                    <ArrowUp className="h-4 w-4 text-white" />
+                  </motion.button>
+                )}
+              </div>
 
-            {/* Merchant — second */}
-            <motion.div className="mb-4" style={{ opacity: merchantOp, y: merchantY }}>
-              <input
-                value={merchant}
-                onChange={(e) => setMerchant(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && canSave) handleSave(); }}
-                placeholder="Where?"
-                className="w-full text-base font-medium rounded-xl px-4 h-11 outline-none placeholder:text-paper/30 text-paper"
-                style={{ background: 'rgba(255,255,255,0.1)', touchAction: 'auto' }}
-              />
-            </motion.div>
-
-            {/* Chips — third (category + payment method together) */}
-            <motion.div style={{ opacity: chipsOp, y: chipsY }}>
-              {categories.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 mb-3" style={{ touchAction: 'pan-x' }}>
-                  {categories.slice(0, 8).map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setCategory(c)}
-                      className={cn(chip, category === c ? 'bg-paper text-ink' : 'text-paper/60')}
-                      style={category !== c ? { background: 'rgba(255,255,255,0.1)' } : {}}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {methods.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 mb-5" style={{ touchAction: 'pan-x' }}>
-                  {methods.map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setPaymentMethod(paymentMethod === m ? '' : m)}
-                      className={cn(chip, paymentMethod === m ? 'bg-paper text-ink' : 'text-paper/60')}
-                      style={paymentMethod !== m ? { background: 'rgba(255,255,255,0.1)' } : {}}
-                    >
-                      {m}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-
-            {/* Save — last to appear */}
-            <motion.div style={{ opacity: saveOp, y: saveY }}>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={!canSave}
-                className="w-full h-12 rounded-xl bg-accent text-white text-sm font-bold uppercase tracking-widest flex items-center justify-center transition-all active:scale-[0.97] disabled:opacity-30"
+              {/* Input mode row */}
+              <motion.div
+                className="flex gap-4 mt-1"
+                style={{ opacity: modeOp }}
               >
-                {uiState === 'saving'  ? <Loader2 className="h-5 w-5 animate-spin" /> :
-                 uiState === 'success' ? <Check   className="h-5 w-5" />             :
-                 'Save'}
-              </button>
+                <button
+                  onClick={() => cameraRef.current?.click()}
+                  className="flex items-center gap-1.5 text-paper/35 hover:text-paper/60 transition-colors active:text-paper"
+                  style={{ touchAction: 'auto' }}
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                  <span className="text-[9px] font-bold uppercase tracking-widest">Photo</span>
+                </button>
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="flex items-center gap-1.5 text-paper/35 hover:text-paper/60 transition-colors active:text-paper"
+                  style={{ touchAction: 'auto' }}
+                >
+                  <ImagePlus className="h-3.5 w-3.5" />
+                  <span className="text-[9px] font-bold uppercase tracking-widest">Receipt</span>
+                </button>
+                <button
+                  onClick={() => router.push('/add')}
+                  className="flex items-center gap-1.5 text-paper/35 hover:text-paper/60 transition-colors active:text-paper"
+                  style={{ touchAction: 'auto' }}
+                >
+                  <PenLine className="h-3.5 w-3.5" />
+                  <span className="text-[9px] font-bold uppercase tracking-widest">Manual</span>
+                </button>
+              </motion.div>
             </motion.div>
+          )}
 
-          </div>
+          {/* ── PARSING state ── */}
+          {state === 'parsing' && (
+            <div className="flex-1 flex items-center justify-center gap-3">
+              <Loader2 className="h-4 w-4 text-paper/40 animate-spin" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-paper/30">
+                Reading…
+              </span>
+            </div>
+          )}
+
+          {/* ── REVIEWING / SAVING / SUCCESS states ── */}
+          {(state === 'reviewing' || state === 'saving' || state === 'success') && draft && (
+            <motion.div
+              className="flex flex-col flex-1 px-4 pb-4"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              {/* Parsed amount — hero number */}
+              <div className="flex-1 flex flex-col justify-center">
+                <p className="text-[3.25rem] font-bold tracking-tighter text-paper tabular-nums leading-none mb-3">
+                  {draft.amount != null
+                    ? `$${draft.amount % 1 === 0 ? draft.amount.toFixed(0) : draft.amount.toFixed(2)}`
+                    : '—'}
+                </p>
+                {/* Metadata row: MERCHANT · CATEGORY · ACCOUNT · DATE */}
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  {[
+                    draft.merchant?.toUpperCase(),
+                    draft.category?.toUpperCase(),
+                    draft.paymentMethod?.toUpperCase(),
+                    draft.date === today ? 'TODAY' : draft.date,
+                  ].filter(Boolean).map((item, i, arr) => (
+                    <span key={i} className="flex items-center gap-1.5">
+                      <span className="text-[9px] font-bold tracking-widest text-paper/60">{item}</span>
+                      {i < arr.length - 1 && <span className="text-paper/20 text-[9px]">·</span>}
+                    </span>
+                  ))}
+                  {draft.needsReview && (
+                    <span className="ml-1 text-[9px] font-bold tracking-widest text-accent/70 uppercase">
+                      · Needs review
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Action row */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setState('expanded'); setDraft(null); setText(draft.rawInput ?? ''); }}
+                  className="flex-1 h-9 rounded-xl text-paper/50 text-[10px] font-bold uppercase tracking-widest transition-colors hover:text-paper/80"
+                  style={{ background: 'rgba(255,255,255,0.07)' }}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={state === 'saving' || state === 'success'}
+                  className="flex-1 h-9 rounded-xl bg-accent text-white text-[10px] font-bold uppercase tracking-widest flex items-center justify-center transition-all active:scale-[0.97] disabled:opacity-60"
+                >
+                  {state === 'saving'  ? <Loader2 className="h-4 w-4 animate-spin" /> :
+                   state === 'success' ? <Check   className="h-4 w-4" />             :
+                   'Save'}
+                </button>
+              </div>
+            </motion.div>
+          )}
         </div>
       </motion.div>
-    </div>
+    </>
   );
 }

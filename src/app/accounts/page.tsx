@@ -24,7 +24,7 @@ export default async function AccountsPage() {
 
   return (
     <div className="max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
-      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex items-center justify-between border-b-2 border-ink">
+      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-3 flex items-center justify-between">
         <h1 className="text-4xl font-bold tracking-tighter text-ink">Accounts</h1>
         {accounts.length >= 2 && (
           <HeaderIconButton href="/transfer" className="-mr-2">
