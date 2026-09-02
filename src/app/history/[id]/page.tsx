@@ -20,14 +20,14 @@ export default async function TransactionDetailPage({
 
   if (!transaction) {
     return (
-      <div className="max-w-md mx-auto px-6 min-h-screen flex items-center justify-center bg-paper">
+      <div className="d-max-md max-w-md mx-auto px-6 min-h-screen flex items-center justify-center bg-paper">
         <p className="text-sm text-ink-soft">Transaction not found.</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-md mx-auto px-6 min-h-screen bg-paper pb-16">
+    <div className="d-max-md max-w-md mx-auto px-6 min-h-screen bg-paper pb-16">
       <PageHeader
         left={
           <HeaderIconButton href="/history" className="-ml-2">

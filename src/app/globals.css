@@ -143,6 +143,36 @@
   }
 }
 
+/* Forced dark — explicit user choice overrides system */
+:root[data-theme="dark"] {
+  --paper: #18181b;
+  --paper-card: #212124;
+  --ink: #f4f4f5;
+  --ink-soft: #a1a1aa;
+  --ink-faint: #6c6c72;
+  --line: #313136;
+  --sand: #2a2a2e;
+  --accent-raw: #ef5b3f;
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--paper-card);
+  --card-foreground: var(--ink);
+  --popover: var(--paper-card);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--sand);
+  --secondary-foreground: var(--ink);
+  --muted: var(--sand);
+  --muted-foreground: var(--ink-soft);
+  --accent: var(--accent-raw);
+  --accent-foreground: #ffffff;
+  --destructive: #ef5b3f;
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--ink-faint);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -169,4 +199,38 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+}
+
+/* ── Desktop layout — outside @layer so these always override Tailwind utilities ── */
+.d-sidebar { display: none; }
+
+@media (min-width: 1024px) {
+  /* Sidebar visible + content pushed right */
+  .d-sidebar  { display: flex; }
+  .d-offset   { padding-left: 14rem; } /* matches sidebar w-56 = 14rem */
+
+  /* Page max-widths */
+  .d-max-xl   { max-width: 64rem; }  /* home, history */
+  .d-max-lg   { max-width: 48rem; }  /* accounts */
+  .d-max-md   { max-width: 42rem; }  /* settings, others */
+
+  /* 2-column flex layouts */
+  .d-row      { display: flex; align-items: flex-start; }
+  .d-gap-lg   { gap: 4rem; }
+  .d-gap-md   { gap: 3rem; }
+  .d-col-grow { flex: 1; min-width: 0; }
+  .d-col-side { width: 20rem; flex-shrink: 0; }      /* ~320px right panel */
+  .d-col-nav  { width: 15rem; flex-shrink: 0; }      /* ~240px filter panel */
+
+  /* Sticky columns */
+  .d-sticky   { position: sticky; top: 2rem; }
+
+  /* Hide bottom nav on desktop */
+  .d-mobile-only { display: none; }
+
+  /* Divider + indent between columns */
+  .d-divide-l { border-left: 1px solid var(--line); padding-left: 2rem; }
+
+  /* Column top padding to align with content */
+  .d-pt       { padding-top: 1.5rem; }
 }

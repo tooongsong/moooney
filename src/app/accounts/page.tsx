@@ -6,6 +6,7 @@ import { QuickAddIsland } from '@/components/QuickAddIsland';
 import { getAccountBalances } from '@/app/actions/accounts';
 import { ACCOUNT_GROUPS, computeNetWorth } from '@/lib/accountTypes';
 import { formatCurrency } from '@/lib/utils';
+import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 
 export default async function AccountsPage() {
   const accounts = await getAccountBalances();
@@ -21,13 +22,11 @@ export default async function AccountsPage() {
   })).filter((g) => g.accounts.length > 0);
 
   return (
-    <div className="max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
+    <div className="d-max-lg max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
 
-      {/* Minimal sticky strip — covers safe area as content scrolls under it */}
-      <div className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+0.25rem)] pb-1" />
-
-      {/* QuickAddIsland — first interaction, top of page */}
-      <QuickAddIsland />
+      <div className="d-mobile-only">
+        <QuickAddIsland />
+      </div>
 
       {accounts.length === 0 ? (
         <div className="pt-10 pb-16">
@@ -36,7 +35,7 @@ export default async function AccountsPage() {
             NO ACCOUNTS<br />YET.
           </p>
           <Link
-            href="/manage"
+            href="/settings"
             className="inline-block mt-6 text-xs font-bold uppercase tracking-widest text-ink underline underline-offset-4"
           >
             Add one
@@ -50,9 +49,7 @@ export default async function AccountsPage() {
             <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-3">Accounts</p>
 
             {/* Net worth number */}
-            <p className="text-[4.25rem] font-bold tracking-tighter text-ink tabular-nums leading-none mb-3">
-              {formatCurrency(netWorth)}
-            </p>
+            <ResponsiveAmount value={netWorth} baseSize={68} minSize={28} className="mb-3" />
 
             {/* Inline assets / owed — one line, no grid */}
             <div className="flex items-center gap-3 text-sm">
@@ -98,8 +95,8 @@ export default async function AccountsPage() {
                   <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint">
                     {group.label}
                   </p>
-                  <p className={`text-[10px] tabular-nums font-semibold ${group.isLiability && group.subtotal < 0 ? 'text-accent' : 'text-ink-faint'}`}>
-                    {group.isLiability && group.subtotal < 0
+                  <p className={`text-[10px] tabular-nums font-semibold ${group.subtotal < 0 ? 'text-accent' : 'text-ink-faint'}`}>
+                    {group.subtotal < 0
                       ? `${formatCurrency(Math.abs(group.subtotal))} owed`
                       : formatCurrency(group.subtotal)}
                   </p>
@@ -141,7 +138,7 @@ export default async function AccountsPage() {
           {/* ── Add account ── */}
           <div className="pt-6 pb-4">
             <Link
-              href="/manage"
+              href="/settings"
               className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink transition-colors"
             >
               <Plus className="h-3 w-3" />

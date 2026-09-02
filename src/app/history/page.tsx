@@ -26,23 +26,30 @@ export default async function HistoryPage({
   ]);
 
   return (
-    <div className="max-w-md mx-auto px-6 min-h-screen pb-28 bg-paper">
-      <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-3">
-        <h1 className="text-4xl font-bold tracking-tighter text-ink">History</h1>
-      </header>
+    <div className="d-max-xl max-w-md mx-auto px-6 min-h-screen pb-28 bg-paper">
 
-      <QuickAddIsland />
+      {/* QuickAddIsland — mobile only */}
+      <div className="d-mobile-only">
+        <QuickAddIsland />
+      </div>
 
-      <section className="pt-4 pb-6 space-y-4">
-        <SearchInput placeholder="Search…" />
-        <MonthFilter />
-        <CategoryFilter categories={categories} />
-        {accountNames.length > 0 && <AccountFilter accounts={accountNames} />}
-      </section>
+      {/* Desktop: filters left (sticky), list right */}
+      <div className="d-row d-gap-md">
 
-      <section>
-        <HistoryList transactions={data} />
-      </section>
+        {/* Filters */}
+        <section className="pt-4 pb-6 space-y-4 d-col-nav d-sticky">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint">History</p>
+          <SearchInput placeholder="Search…" />
+          <MonthFilter />
+          <CategoryFilter categories={categories} />
+          {accountNames.length > 0 && <AccountFilter accounts={accountNames} />}
+        </section>
+
+        {/* Transaction list */}
+        <section className="d-col-grow d-divide-l d-pt">
+          <HistoryList transactions={data} />
+        </section>
+      </div>
 
       <BottomNav />
     </div>

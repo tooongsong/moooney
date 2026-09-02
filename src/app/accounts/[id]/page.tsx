@@ -7,6 +7,7 @@ import { BottomNav } from '@/components/BottomNav';
 import { getAccountDetail } from '@/app/actions/accounts';
 import { listHistoryItems } from '@/app/actions/history';
 import { formatCurrency } from '@/lib/utils';
+import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 
 export default async function AccountDetailPage({
   params,
@@ -27,12 +28,8 @@ export default async function AccountDetailPage({
     return item.fromAccount === detail.name || item.toAccount === detail.name;
   });
 
-  const balanceDisplay = detail.isLiability && detail.balance < 0
-    ? `${formatCurrency(Math.abs(detail.balance))} owed`
-    : formatCurrency(detail.balance);
-
   return (
-    <div className="max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
+    <div className="d-max-lg max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-paper -mx-6 px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-4 flex items-center justify-between border-b border-line">
         <div className="flex items-center gap-3 min-w-0">
@@ -45,7 +42,7 @@ export default async function AccountDetailPage({
           </div>
         </div>
         <Link
-          href={`/manage`}
+          href="/settings"
           className="shrink-0 -mr-1 p-1 text-ink-faint hover:text-ink transition-colors"
           title="Manage accounts"
         >
@@ -61,9 +58,13 @@ export default async function AccountDetailPage({
         <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-2">
           {detail.isLiability ? 'Amount Owed' : 'Current Balance'}
         </p>
-        <p className={`text-6xl font-bold tracking-tighter tabular-nums leading-none ${detail.balance < 0 ? 'text-accent' : 'text-ink'}`}>
-          {balanceDisplay}
-        </p>
+        <ResponsiveAmount
+          value={Math.abs(detail.balance)}
+          baseSize={60}
+          minSize={24}
+          negative={detail.balance < 0}
+          suffix={detail.isLiability && detail.balance < 0 ? 'owed' : undefined}
+        />
         {detail.isLiability && detail.creditLimit && (
           <p className="text-xs text-ink-faint mt-2">
             {formatCurrency(detail.creditLimit + detail.balance)} available of {formatCurrency(detail.creditLimit)} limit

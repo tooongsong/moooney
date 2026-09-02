@@ -48,15 +48,17 @@ export function BottomNav() {
   }, [pathname, activeIdx]);
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pb-[calc(1.5rem+env(safe-area-inset-bottom))] pointer-events-none">
+    <div className="d-mobile-only fixed bottom-0 left-0 right-0 z-40 flex justify-center pb-[calc(1.5rem+env(safe-area-inset-bottom))] pointer-events-none">
       <div
         ref={containerRef}
         className="relative flex items-center bg-ink rounded-full p-1.5 pointer-events-auto"
       >
+        {/* Active highlight — paper/20 adapts: subtle light glow on dark nav (light mode),
+            subtle dark tint on light nav (dark mode) */}
         <span
           ref={barRef}
           aria-hidden
-          className="absolute top-1.5 bottom-1.5 rounded-full bg-white/[0.12] opacity-0 [transition:left_220ms_cubic-bezier(.4,0,.2,1),width_220ms_cubic-bezier(.4,0,.2,1),opacity_150ms_ease-out]"
+          className="absolute top-1.5 bottom-1.5 rounded-full bg-paper/[0.20] opacity-0 [transition:left_220ms_cubic-bezier(.4,0,.2,1),width_220ms_cubic-bezier(.4,0,.2,1),opacity_150ms_ease-out]"
           style={{ left: 0, width: 56 }}
         />
 
@@ -67,7 +69,9 @@ export function BottomNav() {
             href={tab.href}
             className={cn(
               'relative z-10 flex flex-col items-center gap-0.5 px-6 py-2 min-w-[5rem] transition-colors duration-150',
-              tab.match(pathname) ? 'text-white' : 'text-white/40'
+              // Active: text-paper = high-contrast against bg-ink in both modes
+              // Inactive: text-ink-faint = #a1a1aa light mode / #6c6c72 dark mode — solid, no opacity trick
+              tab.match(pathname) ? 'text-paper' : 'text-ink-faint'
             )}
           >
             <tab.icon className="h-5 w-5" strokeWidth={tab.match(pathname) ? 2.5 : 2} />

@@ -12,8 +12,7 @@ export const ACCOUNT_TYPES = [
 
 export type AccountType = (typeof ACCOUNT_TYPES)[number]['value'];
 
-// 'bank' is a legacy alias; treated as asset
-export const ASSET_TYPES      = new Set<string>(['cash', 'checking', 'savings', 'investment', 'other_asset', 'bank']);
+export const ASSET_TYPES      = new Set<string>(['cash', 'checking', 'savings', 'investment', 'other_asset']);
 export const LIABILITY_TYPES  = new Set<string>(['credit_card', 'loan', 'mortgage', 'other_liability']);
 
 export function isLiabilityType(type: string): boolean {
@@ -21,21 +20,16 @@ export function isLiabilityType(type: string): boolean {
 }
 
 export function accountTypeLabel(type: string): string {
-  return ACCOUNT_TYPES.find((t) => t.value === type)?.label
-    ?? (type === 'bank' ? 'Checking' : type);
+  return ACCOUNT_TYPES.find((t) => t.value === type)?.label ?? type;
 }
 
 // Groups used on the Accounts page (order matters)
 export const ACCOUNT_GROUPS = [
-  { types: ['cash'],                      label: 'Cash',         isLiability: false },
-  { types: ['checking', 'bank'],          label: 'Checking',     isLiability: false },
-  { types: ['savings'],                   label: 'Savings',      isLiability: false },
-  { types: ['investment'],                label: 'Investments',  isLiability: false },
-  { types: ['other_asset'],               label: 'Other Assets', isLiability: false },
-  { types: ['credit_card'],               label: 'Credit Cards', isLiability: true  },
-  { types: ['loan'],                      label: 'Loans',        isLiability: true  },
-  { types: ['mortgage'],                  label: 'Mortgages',    isLiability: true  },
-  { types: ['other_liability'],           label: 'Other Liabilities', isLiability: true },
+  { id: 'cash_banking', label: 'Cash & Banking', types: ['cash', 'checking', 'savings'],   isLiability: false },
+  { id: 'credit_cards', label: 'Credit Cards',   types: ['credit_card'],                   isLiability: true  },
+  { id: 'investments',  label: 'Investments',    types: ['investment'],                     isLiability: false },
+  { id: 'loans',        label: 'Loans',          types: ['loan', 'mortgage'],              isLiability: true  },
+  { id: 'other',        label: 'Other',          types: ['other_asset', 'other_liability'], isLiability: false },
 ] as const;
 
 export interface NetWorthSummary {

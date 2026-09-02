@@ -39,7 +39,7 @@ export default function TransferPage() {
   };
 
   return (
-    <div className="max-w-md mx-auto px-6 min-h-screen bg-paper flex flex-col">
+    <div className="d-max-md max-w-md mx-auto px-6 min-h-screen bg-paper flex flex-col">
       <PageHeader
         left={
           <HeaderIconButton className="-ml-2" onClick={() => router.push('/')}>
@@ -53,7 +53,7 @@ export default function TransferPage() {
         {accounts === null ? null : accounts.length < 2 ? (
           <div className="text-center py-16 text-ink-faint text-sm border border-dashed border-line mt-6">
             <p>You need at least 2 accounts to make a transfer.</p>
-            <Link href="/manage" className="inline-block mt-4 text-ink font-medium underline underline-offset-4">
+            <Link href="/settings" className="inline-block mt-4 text-ink font-medium underline underline-offset-4">
               Add an account
             </Link>
           </div>

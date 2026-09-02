@@ -22,14 +22,9 @@ export function HistoryList({ transactions }: { transactions: HistoryItem[] }) {
 
   if (items.length === 0) {
     return (
-      <div className="py-16">
-        <p className="text-3xl font-bold tracking-tighter text-ink-faint leading-tight">
-          NOTHING<br />HERE.
-        </p>
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint mt-3">
-          Try different filters
-        </p>
-      </div>
+      <p className="py-4 text-sm text-ink-faint">
+        Nothing here — try different filters.
+      </p>
     );
   }
 

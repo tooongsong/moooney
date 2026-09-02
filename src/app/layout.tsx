@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { GeistSans } from 'geist/font/sans';
 import './globals.css';
 import { Toaster } from '@/components/ui/sonner';
+import { DesktopSidebar } from '@/components/DesktopSidebar';
 
 export const metadata: Metadata = {
   title: 'moooney',
@@ -45,6 +46,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('theme');if(t==='light')document.documentElement.dataset.theme='light';else if(t==='dark')document.documentElement.dataset.theme='dark';}catch(e){}` }} />
         {/* Apple Splash Screens */}
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-2048-2732.png" media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-1668-2388.png" media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
@@ -61,7 +63,10 @@ export default function RootLayout({
         <link rel="apple-touch-startup-image" href="/splash/apple-splash-750-1334.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" />
       </head>
       <body className={GeistSans.className}>
-        {children}
+        <DesktopSidebar />
+        <div className="d-offset">
+          {children}
+        </div>
         <Toaster />
       </body>
     </html>
