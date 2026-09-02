@@ -5,9 +5,11 @@ import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { ManageList } from '@/components/ManageList';
 import {
   addPaymentMethod,
+  updatePaymentMethod,
   deletePaymentMethod,
   listCustomCategories,
   addCustomCategory,
+  renameCustomCategory,
   deleteCustomCategory,
 } from '@/app/actions/manage';
 import { signOut } from '@/app/actions/auth';
@@ -40,6 +42,7 @@ export default async function ManagePage() {
             items={accounts.map((a) => ({ id: a.id, name: a.name, subtitle: formatCurrency(a.balance), type: a.type, institution: a.institution ?? undefined }))}
             onAdd={addPaymentMethod}
             onDelete={deletePaymentMethod}
+            onUpdate={updatePaymentMethod}
           />
           {accounts.length > 0 && (
             <Link href="/accounts" className="text-xs text-ink-faint hover:text-ink-soft flex items-center gap-0.5 mt-3">
@@ -56,6 +59,7 @@ export default async function ManagePage() {
           builtIn={[...CATEGORIES]}
           onAdd={addCustomCategory}
           onDelete={deleteCustomCategory}
+          onRename={renameCustomCategory}
         />
 
         <form action={signOut}>

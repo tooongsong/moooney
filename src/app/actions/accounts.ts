@@ -15,6 +15,17 @@ async function getUser() {
   return user;
 }
 
+// Drizzle returns Postgres `numeric` columns as strings at runtime despite .$type<number>().
+// This coerces safely and logs if a DB value was unexpectedly non-numeric.
+function toNum(v: unknown, field?: string): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) {
+    console.error(`[accounts] non-numeric value for ${field ?? '?'}:`, v);
+    return 0;
+  }
+  return n;
+}
+
 export interface AccountBalance {
   id: string;
   name: string;
@@ -52,16 +63,17 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
   ]);
 
   return active.map((account) => {
+    const sb = toNum(account.startingBalance, 'startingBalance');
     let delta = 0;
 
     for (const t of txRows) {
-      // Prefer ID match; fall back to name for legacy rows that weren't backfilled
       const matches = t.paymentMethodId
         ? t.paymentMethodId === account.id
         : t.paymentMethod === account.name;
       if (!matches) continue;
-      if (t.type === 'income' || t.type === 'refund') delta += t.amount;
-      else if (t.type === 'expense') delta -= t.amount;
+      const amt = toNum(t.amount, 'transaction.amount');
+      if (t.type === 'income' || t.type === 'refund') delta += amt;
+      else if (t.type === 'expense') delta -= amt;
     }
 
     for (const tr of trRows) {
@@ -71,8 +83,9 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
       const toMatches = tr.toAccountId
         ? tr.toAccountId === account.id
         : tr.toAccount === account.name;
-      if (fromMatches) delta -= tr.amount;
-      if (toMatches) delta += tr.amount;
+      const amt = toNum(tr.amount, 'transfer.amount');
+      if (fromMatches) delta -= amt;
+      if (toMatches) delta += amt;
     }
 
     return {
@@ -81,9 +94,9 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
       type:            account.type,
       institution:     account.institution,
       currency:        account.currency,
-      creditLimit:     account.creditLimit,
-      startingBalance: account.startingBalance,
-      balance:         account.startingBalance + delta,
+      creditLimit:     account.creditLimit !== null ? toNum(account.creditLimit, 'creditLimit') : null,
+      startingBalance: sb,
+      balance:         sb + delta,
       isLiability:     LIABILITY_TYPES.has(account.type),
     };
   });
@@ -125,32 +138,36 @@ export async function getAccountDetail(id: string): Promise<AccountDetail | null
     }),
   ]);
 
+  const sb = toNum(account.startingBalance, 'startingBalance');
   let delta = 0;
   for (const t of allTxns) {
-    if (t.type === 'income' || t.type === 'refund') delta += t.amount;
-    else if (t.type === 'expense') delta -= t.amount;
+    const amt = toNum(t.amount, 'transaction.amount');
+    if (t.type === 'income' || t.type === 'refund') delta += amt;
+    else if (t.type === 'expense') delta -= amt;
   }
   for (const tr of allTr) {
-    if ((tr.fromAccountId ?? tr.fromAccount) === (account.id ?? account.name)) delta -= tr.amount;
-    if ((tr.toAccountId   ?? tr.toAccount)   === (account.id ?? account.name)) delta += tr.amount;
+    const amt = toNum(tr.amount, 'transfer.amount');
+    if ((tr.fromAccountId ?? tr.fromAccount) === (account.id ?? account.name)) delta -= amt;
+    if ((tr.toAccountId   ?? tr.toAccount)   === (account.id ?? account.name)) delta += amt;
   }
 
   let thisMonthIn = 0, thisMonthOut = 0;
   for (const t of monthTxns) {
-    if (t.type === 'income' || t.type === 'refund') thisMonthIn  += t.amount;
-    else if (t.type === 'expense')                   thisMonthOut += t.amount;
+    const amt = toNum(t.amount, 'transaction.amount');
+    if (t.type === 'income' || t.type === 'refund') thisMonthIn  += amt;
+    else if (t.type === 'expense')                   thisMonthOut += amt;
   }
 
   return {
-    id:           account.id,
-    name:         account.name,
-    type:         account.type,
-    institution:  account.institution,
-    currency:     account.currency,
-    creditLimit:  account.creditLimit,
-    startingBalance: account.startingBalance,
-    balance:      account.startingBalance + delta,
-    isLiability:  LIABILITY_TYPES.has(account.type),
+    id:              account.id,
+    name:            account.name,
+    type:            account.type,
+    institution:     account.institution,
+    currency:        account.currency,
+    creditLimit:     account.creditLimit !== null ? toNum(account.creditLimit, 'creditLimit') : null,
+    startingBalance: sb,
+    balance:         sb + delta,
+    isLiability:     LIABILITY_TYPES.has(account.type),
     thisMonthIn,
     thisMonthOut,
   };

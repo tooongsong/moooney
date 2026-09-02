@@ -1,20 +1,23 @@
 export const CATEGORIES = [
   'Food & Dining',
   'Groceries',
-  'Home',
-  'Transportation',
-  'Car',
   'Shopping',
-  'Pet',
+  'Home',
+  'Transport',
+  'Car',
+  'Bills',
   'Entertainment',
-  'Bills & Utilities',
-  'Travel',
   'Health',
-  'Education',
-  'Work',
-  'Gifts',
+  'Travel',
+  'Pet',
   'Other',
 ] as const;
+
+// Legacy names that may exist on old transactions — map to current name for display
+export const CATEGORY_ALIASES: Record<string, string> = {
+  'Transportation':    'Transport',
+  'Bills & Utilities': 'Bills',
+};
 
 export type Category = (typeof CATEGORIES)[number];
 

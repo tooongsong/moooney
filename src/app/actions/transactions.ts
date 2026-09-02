@@ -63,6 +63,19 @@ export async function extractDraft(input: {
       return { success: false, error: 'Please provide text or a receipt photo.' };
     }
 
+    // [DEBUG] Stage 1: what did the client send?
+    if (input.imageBase64) {
+      const prefix = input.imageBase64.slice(0, 50);
+      const byteLen = Math.round(input.imageBase64.length * 0.75); // base64 → bytes approx
+      console.log('[extractDraft] image received — prefix:', prefix, '| approx bytes:', byteLen);
+    }
+    if (input.text) {
+      console.log('[extractDraft] text received — length:', input.text.length, '| preview:', input.text.slice(0, 80));
+    }
+
+    // [DEBUG] Stage 2: which model?
+    console.log('[extractDraft] model:', modelName);
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const messages: any[] = [
       { role: 'system', content: buildExtractionSystemPrompt() },
@@ -76,27 +89,51 @@ export async function extractDraft(input: {
       },
     ];
 
-    const completion = await openai.chat.completions.create({
-      model: modelName,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      messages: messages as any,
-      max_tokens: 4000,
-      response_format: { type: 'json_object' },
-    });
+    // [DEBUG] Stage 3: call OpenAI
+    let completion;
+    try {
+      completion = await openai.chat.completions.create({
+        model: modelName,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        messages: messages as any,
+        max_tokens: 4000,
+        response_format: { type: 'json_object' },
+      });
+      console.log('[extractDraft] OpenAI response — finish_reason:', completion.choices[0]?.finish_reason,
+        '| usage:', JSON.stringify(completion.usage));
+    } catch (apiErr) {
+      const msg = apiErr instanceof Error ? apiErr.message : String(apiErr);
+      console.error('[extractDraft] AI_REQUEST_FAILED:', msg);
+      const safe = /bearer|api.?key|authorization|sk-/i.test(msg)
+        ? 'Receipt recognition failed (auth). Please try again.'
+        : `AI_REQUEST_FAILED: ${msg}`;
+      return { success: false, error: safe };
+    }
 
     const content = completion.choices[0].message.content;
-    if (!content) return { success: false, error: 'AI did not return a result.' };
+    console.log('[extractDraft] raw AI content:', content?.slice(0, 300));
+    if (!content) return { success: false, error: 'AI_RESPONSE_INVALID: no content returned.' };
 
+    // [DEBUG] Stage 4: JSON parse
     let parsed;
     try {
       parsed = JSON.parse(content);
-    } catch {
-      return { success: false, error: 'Could not parse the AI response.' };
+    } catch (jsonErr) {
+      console.error('[extractDraft] JSON_PARSE_FAILED:', jsonErr instanceof Error ? jsonErr.message : jsonErr);
+      return { success: false, error: 'JSON_PARSE_FAILED: AI returned non-JSON content.' };
     }
 
-    const result = ExtractionSchema.parse(parsed);
+    // [DEBUG] Stage 5: Zod schema validation
+    let result;
+    try {
+      result = ExtractionSchema.parse(parsed);
+    } catch (zodErr) {
+      console.error('[extractDraft] ZOD_PARSE_FAILED:', zodErr);
+      return { success: false, error: `ZOD_PARSE_FAILED: ${zodErr instanceof Error ? zodErr.message : 'schema mismatch'}` };
+    }
 
     const usable = result.transactions.filter((t) => t.amount !== null || (t.items && t.items.length > 0));
+    console.log('[extractDraft] usable transactions:', usable.length, '/ total:', result.transactions.length);
 
     if (usable.length === 0) {
       return { success: false, error: "Couldn't find an amount — try rephrasing, or use manual entry." };
@@ -123,10 +160,7 @@ export async function extractDraft(input: {
 
     return { success: true, drafts };
   } catch (error) {
-    // Log full error server-side (never sent to client)
-    console.error('extractDraft error:', error);
-    // Sanitize: if the raw message references auth headers or keys, replace it.
-    // This prevents API key values from leaking through error messages.
+    console.error('[extractDraft] UNEXPECTED ERROR:', error);
     const raw = error instanceof Error ? error.message : '';
     const safe = /bearer|api.?key|authorization|sk-/i.test(raw)
       ? 'Receipt recognition failed. Please try again.'
@@ -295,15 +329,16 @@ export async function getHomeData() {
   const categoryTotals = new Map<string, number>();
 
   for (const t of monthTxns) {
+    const amt = Number(t.amount) || 0;
     if (t.type === 'expense') {
-      monthSpend += t.amount;
-      categoryTotals.set(t.category, (categoryTotals.get(t.category) || 0) + t.amount);
-      if (t.date >= todayStart && t.date <= todayEnd) todaySpend += t.amount;
+      monthSpend += amt;
+      categoryTotals.set(t.category, (categoryTotals.get(t.category) || 0) + amt);
+      if (t.date >= todayStart && t.date <= todayEnd) todaySpend += amt;
     } else if (t.type === 'income') {
-      monthIncome += t.amount;
+      monthIncome += amt;
     } else if (t.type === 'refund') {
-      monthSpend -= t.amount;
-      if (t.date >= todayStart && t.date <= todayEnd) todaySpend -= t.amount;
+      monthSpend -= amt;
+      if (t.date >= todayStart && t.date <= todayEnd) todaySpend -= amt;
     }
   }
 

@@ -10,7 +10,9 @@ export function MonthFilter() {
 
   const now = new Date();
   const param = searchParams.get('month');
-  const currentDate = param ? startOfMonth(new Date(param + '-01')) : startOfMonth(now);
+  const currentDate = param
+    ? (() => { const [y, m] = param.split('-').map(Number); return new Date(y, m - 1, 1); })()
+    : startOfMonth(now);
   const isCurrentMonth = format(currentDate, 'yyyy-MM') === format(now, 'yyyy-MM');
 
   function navigate(date: Date) {

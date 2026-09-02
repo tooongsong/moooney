@@ -72,6 +72,23 @@ export async function addPaymentMethod(
   }
 }
 
+export async function updatePaymentMethod(
+  id: string,
+  updates: { name?: string; type?: AccountType; startingBalance?: number; institution?: string; creditLimit?: number | null },
+) {
+  const user = await getUser();
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (updates.name !== undefined)            set.name            = updates.name.trim();
+  if (updates.type !== undefined)            set.type            = updates.type;
+  if (updates.startingBalance !== undefined) set.startingBalance = updates.startingBalance;
+  if (updates.institution !== undefined)     set.institution     = updates.institution?.trim() || null;
+  if (updates.creditLimit !== undefined)     set.creditLimit     = updates.creditLimit;
+  await db.update(paymentMethods).set(set)
+    .where(and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id)));
+  revalidateAccounts();
+  return { success: true };
+}
+
 export async function archivePaymentMethod(id: string) {
   const user = await getUser();
   await db
@@ -147,9 +164,40 @@ export async function addCustomCategory(name: string) {
   }
 }
 
-export async function deleteCustomCategory(id: string) {
-  await db.delete(customCategories).where(eq(customCategories.id, id));
+export async function renameCustomCategory(id: string, newName: string) {
+  const user = await getUser();
+  const trimmed = newName.trim();
+  if (!trimmed) return { success: false, error: 'Name is required' };
+  if ((CATEGORIES as readonly string[]).includes(trimmed)) {
+    return { success: false, error: 'That name matches a built-in category' };
+  }
+  const cat = await db.query.customCategories.findFirst({
+    where: and(eq(customCategories.id, id), eq(customCategories.userId, user.id)),
+  });
+  if (!cat) return { success: false, error: 'Category not found' };
+  // Migrate transactions to the new name
+  await db.update(transactions).set({ category: trimmed, updatedAt: new Date() })
+    .where(and(eq(transactions.userId, user.id), eq(transactions.category, cat.name)));
+  await db.update(customCategories).set({ name: trimmed })
+    .where(and(eq(customCategories.id, id), eq(customCategories.userId, user.id)));
   revalidatePath('/manage');
+  revalidatePath('/history');
+  return { success: true };
+}
+
+export async function deleteCustomCategory(id: string) {
+  const user = await getUser();
+  const cat = await db.query.customCategories.findFirst({
+    where: and(eq(customCategories.id, id), eq(customCategories.userId, user.id)),
+  });
+  if (cat) {
+    // Reassign orphaned transactions to "Other" before deleting
+    await db.update(transactions).set({ category: 'Other', updatedAt: new Date() })
+      .where(and(eq(transactions.userId, user.id), eq(transactions.category, cat.name)));
+  }
+  await db.delete(customCategories).where(and(eq(customCategories.id, id), eq(customCategories.userId, user.id)));
+  revalidatePath('/manage');
+  revalidatePath('/history');
   return { success: true };
 }
 
