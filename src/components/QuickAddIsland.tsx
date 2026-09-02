@@ -10,25 +10,45 @@ import { saveTransaction } from '@/app/actions/transactions';
 import { getAllCategories, getPaymentMethodNames } from '@/app/actions/manage';
 import { DEFAULT_CATEGORY } from '@/lib/categories';
 
-// ── spring configs ──────────────────────────────────────────────────────────
-const OPEN_SPRING  = { type: 'spring' as const, stiffness: 360, damping: 30, mass: 1 };
-const CLOSE_SPRING = { type: 'spring' as const, stiffness: 420, damping: 38, mass: 1 };
+// ── physics (calibrated from BottomSheet / SwiftUI hero studies) ─────────────
+// Open: snappy spring with slight overshoot
+const SPRING_OPEN  = { type: 'spring' as const, stiffness: 380, damping: 30, mass: 1 };
+// Close: stiffer, decisive
+const SPRING_CLOSE = { type: 'spring' as const, stiffness: 440, damping: 36, mass: 1 };
 
-const PILL_W    = 108;
-const PILL_H    = 36;
-const PANEL_H   = 460;
-const HEADER_H  = 48;
-const THRESHOLD = 0.35;
-const VEL_OPEN  =  450;  // px/s downward
-const VEL_CLOSE = -450;  // px/s upward
+// ── geometry ──────────────────────────────────────────────────────────────────
+const PILL_W   = 108;
+const PILL_H   = 36;
+const PANEL_H  = 460;
+const HEADER_H = 48;
+
+// ── thresholds (BottomSheet: 0.30 dismiss, dead zone before that) ─────────────
+const THRESHOLD = 0.30;
+const VEL_OPEN  =  380; // px/s downward flick → snap open
+const VEL_CLOSE = -380; // px/s upward flick  → snap closed
 
 type UIState = 'collapsed' | 'expanded' | 'saving' | 'success';
 
-// ── component ───────────────────────────────────────────────────────────────
+// iOS asymptotic rubber-band: maximum overdrag approaches a fixed ceiling
+// x: normalized progress value possibly outside [0,1]
+function rubberBand(x: number): number {
+  if (x >= 0 && x <= 1) return x;
+  if (x > 1) {
+    const excess = x - 1;
+    return 1 + 0.25 * (1 - 1 / (excess * 4 + 1));
+  }
+  const excess = -x;
+  return -(0.25 * (1 - 1 / (excess * 4 + 1)));
+}
+
+function lerp(a: number, b: number, t: number) { return a + (b - a) * t; }
+function clamp01(v: number)                     { return Math.max(0, Math.min(1, v)); }
+
+// ─────────────────────────────────────────────────────────────────────────────
 export function QuickAddIsland() {
   const router = useRouter();
 
-  // Measure wrapper so expanded panel fills available width
+  // Measure available width on mount / resize
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [expandedW, setExpandedW] = useState(360);
   useEffect(() => {
@@ -41,15 +61,36 @@ export function QuickAddIsland() {
     return () => ro.disconnect();
   }, []);
 
-  // progress: 0 = collapsed, 1 = expanded
-  // motion.div reads motion values directly — immune to React re-renders
-  const progress    = useMotionValue(0);
+  // ── single progress value drives ALL geometry (SwiftUI matched-geometry pattern) ──
+  // 0 = pill, 1 = fully expanded panel
+  const progress = useMotionValue(0);
+
+  // Panel shell — all derived from the same progress so it morphs as one object
   const panelWidth  = useTransform(progress, (p) => lerp(PILL_W, expandedW, clamp01(p)));
   const panelHeight = useTransform(progress, (p) => lerp(PILL_H, PANEL_H,   clamp01(p)));
-  const radius      = useTransform(progress, (p) => lerp(9999,   24,        clamp01(p)));
-  const pillOp      = useTransform(progress, [0, 0.20], [1, 0]);
-  const contentOp   = useTransform(progress, [0.40, 1], [0, 1]);
-  const contentSc   = useTransform(progress, [0.40, 1], [0.92, 1]);
+
+  // Radius: ease-out so the "pill identity" dissolves quickly at the start of drag
+  const radius = useTransform(progress, (p) => {
+    const eased = 1 - (1 - clamp01(p)) ** 2;
+    return lerp(9999, 24, eased);
+  });
+
+  // Pill label: out by 20%
+  const pillOp = useTransform(progress, [0, 0.20], [1, 0]);
+
+  // ── staggered content reveal (SwiftAnimPlayground pattern) ───────────────────
+  // Each layer has an offset input window on the same [0,1] progress axis.
+  // During drag the reveals flow naturally; spring settle after release feels alive.
+  const headerOp   = useTransform(progress, [0.30, 0.52], [0, 1]);
+  const headerY    = useTransform(progress, [0.30, 0.52], [-6, 0]);
+  const amountOp   = useTransform(progress, [0.42, 0.62], [0, 1]);
+  const amountY    = useTransform(progress, [0.42, 0.62], [10, 0]);
+  const merchantOp = useTransform(progress, [0.52, 0.70], [0, 1]);
+  const merchantY  = useTransform(progress, [0.52, 0.70], [8,  0]);
+  const chipsOp    = useTransform(progress, [0.62, 0.80], [0, 1]);
+  const chipsY     = useTransform(progress, [0.62, 0.80], [6,  0]);
+  const saveOp     = useTransform(progress, [0.72, 0.90], [0, 1]);
+  const saveY      = useTransform(progress, [0.72, 0.90], [6,  0]);
 
   // ── form state ─────────────────────────────────────────────────────────────
   const [uiState,       setUiState]       = useState<UIState>('collapsed');
@@ -75,19 +116,19 @@ export function QuickAddIsland() {
 
   useEffect(() => {
     if (uiState === 'expanded') {
-      const t = setTimeout(() => amountRef.current?.focus(), 320);
+      const t = setTimeout(() => amountRef.current?.focus(), 340);
       return () => clearTimeout(t);
     }
   }, [uiState]);
 
-  // ── spring snaps ────────────────────────────────────────────────────────────
+  // ── spring snaps ──────────────────────────────────────────────────────────
   const openIsland = useCallback(() => {
     setUiState('expanded');
-    animate(progress, 1, OPEN_SPRING);
+    animate(progress, 1, SPRING_OPEN);
   }, [progress]);
 
   const closeIsland = useCallback(() => {
-    animate(progress, 0, CLOSE_SPRING).then(() => {
+    animate(progress, 0, SPRING_CLOSE).then(() => {
       setUiState('collapsed');
       setAmount('');
       setMerchant('');
@@ -96,13 +137,15 @@ export function QuickAddIsland() {
     });
   }, [progress]);
 
-  // ── drag state ──────────────────────────────────────────────────────────────
+  // ── drag gesture ──────────────────────────────────────────────────────────
+  // Direct manipulation: geometry follows finger CONTINUOUSLY.
+  // Spring fires only AFTER release.
   const dragging = useRef(false);
   const startY   = useRef(0);
   const startP   = useRef(0);
   const prevY    = useRef(0);
   const prevT    = useRef(0);
-  const vel      = useRef(0);
+  const vel      = useRef(0); // px/s, positive = downward
 
   const onDown = useCallback((e: React.PointerEvent) => {
     if (uiState === 'saving' || uiState === 'success') return;
@@ -118,20 +161,20 @@ export function QuickAddIsland() {
 
   const onMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current) return;
+
+    // Velocity (exponential moving average for stability)
     const dt = e.timeStamp - prevT.current;
-    if (dt > 0) vel.current = (e.clientY - prevY.current) / (dt / 1000);
+    if (dt > 0) {
+      const instantV = (e.clientY - prevY.current) / (dt / 1000);
+      vel.current = vel.current * 0.6 + instantV * 0.4; // EMA smoothing
+    }
     prevY.current = e.clientY;
     prevT.current = e.timeStamp;
 
-    const dy    = e.clientY - startY.current;
-    const range = PANEL_H - PILL_H;
-    let   raw   = startP.current + dy / range;
-
-    // rubber-band beyond [0, 1]
-    if (raw > 1) raw = 1 + (raw - 1) * 0.12;
-    if (raw < 0) raw = raw * 0.12;
-
-    progress.set(Math.max(-0.3, Math.min(1.3, raw)));
+    // Map drag delta → progress, then apply rubber-band beyond [0,1]
+    const dy  = e.clientY - startY.current;
+    const raw = startP.current + dy / (PANEL_H - PILL_H);
+    progress.set(rubberBand(raw)); // direct, no spring
   }, [progress]);
 
   const onUp = useCallback(() => {
@@ -142,18 +185,24 @@ export function QuickAddIsland() {
     const v = vel.current;
 
     if (uiState === 'collapsed') {
-      // tap (< 8px movement) or drag past threshold → open
-      const moved = Math.abs(p) * (PANEL_H - PILL_H);
-      if (moved < 8 || p > THRESHOLD || v > VEL_OPEN) { openIsland(); return; }
-      animate(progress, 0, CLOSE_SPRING);
+      // tap = < 8px travel → open
+      const travelPx = Math.abs(p - startP.current) * (PANEL_H - PILL_H);
+      if (travelPx < 8 || p > THRESHOLD || v > VEL_OPEN) {
+        openIsland();
+      } else {
+        animate(progress, 0, SPRING_CLOSE);
+      }
     } else {
-      // from expanded: significant upward drag → close
-      if (p < 1 - THRESHOLD || v < VEL_CLOSE) { closeIsland(); return; }
-      animate(progress, 1, OPEN_SPRING);
+      // from expanded: drag up past threshold or fast flick → close
+      if (p < 1 - THRESHOLD || v < VEL_CLOSE) {
+        closeIsland();
+      } else {
+        animate(progress, 1, SPRING_OPEN);
+      }
     }
   }, [progress, uiState, openIsland, closeIsland]);
 
-  // ── save ────────────────────────────────────────────────────────────────────
+  // ── save ──────────────────────────────────────────────────────────────────
   const amountNum = parseFloat(amount);
   const canSave   = !isNaN(amountNum) && amountNum > 0 && merchant.trim().length > 0 && uiState === 'expanded';
 
@@ -182,14 +231,16 @@ export function QuickAddIsland() {
     }
   }
 
-  const chip = 'shrink-0 h-7 px-3 rounded-full text-[9px] font-bold uppercase tracking-widest whitespace-nowrap transition-colors';
+  const chip       = 'shrink-0 h-7 px-3 rounded-full text-[9px] font-bold uppercase tracking-widest whitespace-nowrap transition-colors';
+  const isExpanded = uiState !== 'collapsed';
 
-  // ── render ──────────────────────────────────────────────────────────────────
+  // ── render ────────────────────────────────────────────────────────────────
   return (
     <div ref={wrapperRef} className="flex justify-center mt-3 mb-1">
       {/*
-        motion.div reads motion values from `style` directly —
-        React re-renders (e.g. setUiState) do NOT reset animated dimensions.
+        One motion.div = one continuous object.
+        motion values in `style` are managed outside React's render cycle,
+        so state changes (setUiState) never reset animated dimensions.
       */}
       <motion.div
         style={{
@@ -203,56 +254,58 @@ export function QuickAddIsland() {
           userSelect:   'none',
         }}
       >
-        {/* ── Collapsed pill ─────────────────────────────── */}
+        {/* ── COLLAPSED PILL LAYER ─────────────────────────────────────────── */}
+        {/* Drag and tap target when collapsed */}
         <motion.div
           className="absolute inset-0 flex items-center justify-center cursor-pointer text-paper"
-          style={{ opacity: pillOp }}
-          onPointerDown={uiState === 'collapsed' ? onDown : undefined}
-          onPointerMove={uiState === 'collapsed' ? onMove : undefined}
-          onPointerUp={uiState   === 'collapsed' ? onUp   : undefined}
-          onPointerCancel={uiState === 'collapsed' ? onUp  : undefined}
+          style={{ opacity: pillOp, pointerEvents: isExpanded ? 'none' : 'auto' }}
+          onPointerDown={!isExpanded ? onDown : undefined}
+          onPointerMove={!isExpanded ? onMove : undefined}
+          onPointerUp={!isExpanded   ? onUp   : undefined}
+          onPointerCancel={!isExpanded ? onUp : undefined}
         >
           <span className="text-[10px] font-bold uppercase tracking-widest select-none">
             + Add
           </span>
         </motion.div>
 
-        {/* ── Expanded panel ─────────────────────────────── */}
-        <motion.div
+        {/* ── EXPANDED PANEL CONTENT ───────────────────────────────────────── */}
+        {/* pointerEvents disabled while collapsed so pill layer handles gestures cleanly */}
+        <div
           className="absolute inset-0 flex flex-col"
-          style={{
-            opacity:         contentOp,
-            scale:           contentSc,
-            transformOrigin: 'top center',
-          }}
+          style={{ pointerEvents: isExpanded ? 'auto' : 'none' }}
         >
-          {/* Drag handle / header */}
-          <div
-            className="shrink-0 flex items-center justify-between px-5 cursor-grab active:cursor-grabbing"
-            style={{ height: HEADER_H, touchAction: 'none' }}
-            onPointerDown={uiState === 'expanded' ? onDown : undefined}
-            onPointerMove={uiState === 'expanded' ? onMove : undefined}
-            onPointerUp={uiState   === 'expanded' ? onUp   : undefined}
-            onPointerCancel={uiState === 'expanded' ? onUp  : undefined}
+          {/* Header — also the drag handle when expanded */}
+          <motion.div
+            className="shrink-0 flex items-center justify-between px-5 relative cursor-grab active:cursor-grabbing"
+            style={{ height: HEADER_H, opacity: headerOp, y: headerY, touchAction: 'none' }}
+            onPointerDown={isExpanded ? onDown : undefined}
+            onPointerMove={isExpanded ? onMove : undefined}
+            onPointerUp={isExpanded   ? onUp   : undefined}
+            onPointerCancel={isExpanded ? onUp  : undefined}
           >
-            {/* Drag pill indicator */}
+            {/* Drag indicator bar */}
             <div className="absolute left-0 right-0 top-2.5 mx-auto w-8 h-0.5 rounded-full bg-paper/20 pointer-events-none" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-paper/50 select-none mt-1">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-paper/50 select-none">
               Quick add
             </span>
             <button
               onClick={closeIsland}
-              className="p-1 -mr-1 text-paper/50 hover:text-paper transition-colors mt-1"
+              className="p-1 -mr-1 text-paper/50 hover:text-paper transition-colors"
               style={{ touchAction: 'auto' }}
             >
               <X className="h-4 w-4" />
             </button>
-          </div>
+          </motion.div>
 
-          {/* Scrollable form body */}
+          {/* Scrollable form — staggered reveal per section */}
           <div className="flex-1 overflow-y-auto px-5 pb-5" style={{ touchAction: 'pan-y' }}>
-            {/* Amount */}
-            <div className="flex items-end gap-1 mb-5">
+
+            {/* Amount — appears first */}
+            <motion.div
+              className="flex items-end gap-1 mb-5"
+              style={{ opacity: amountOp, y: amountY }}
+            >
               <span className="text-2xl text-paper/30 font-light mb-0.5 leading-none">$</span>
               <input
                 ref={amountRef}
@@ -264,70 +317,71 @@ export function QuickAddIsland() {
                 className="flex-1 text-5xl font-bold tracking-tighter bg-transparent outline-none placeholder:text-paper/20 text-paper leading-none min-w-0"
                 style={{ touchAction: 'auto' }}
               />
-            </div>
+            </motion.div>
 
-            {/* Merchant */}
-            <input
-              value={merchant}
-              onChange={(e) => setMerchant(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && canSave) handleSave(); }}
-              placeholder="Where?"
-              className="w-full text-base font-medium rounded-xl px-4 h-11 outline-none placeholder:text-paper/30 text-paper mb-4"
-              style={{ background: 'rgba(255,255,255,0.1)', touchAction: 'auto' }}
-            />
+            {/* Merchant — second */}
+            <motion.div className="mb-4" style={{ opacity: merchantOp, y: merchantY }}>
+              <input
+                value={merchant}
+                onChange={(e) => setMerchant(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && canSave) handleSave(); }}
+                placeholder="Where?"
+                className="w-full text-base font-medium rounded-xl px-4 h-11 outline-none placeholder:text-paper/30 text-paper"
+                style={{ background: 'rgba(255,255,255,0.1)', touchAction: 'auto' }}
+              />
+            </motion.div>
 
-            {/* Category chips */}
-            {categories.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 mb-3" style={{ touchAction: 'pan-x' }}>
-                {categories.slice(0, 8).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setCategory(c)}
-                    className={cn(chip, category === c ? 'bg-paper text-ink' : 'text-paper/60')}
-                    style={category !== c ? { background: 'rgba(255,255,255,0.1)' } : {}}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* Chips — third (category + payment method together) */}
+            <motion.div style={{ opacity: chipsOp, y: chipsY }}>
+              {categories.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 mb-3" style={{ touchAction: 'pan-x' }}>
+                  {categories.slice(0, 8).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setCategory(c)}
+                      className={cn(chip, category === c ? 'bg-paper text-ink' : 'text-paper/60')}
+                      style={category !== c ? { background: 'rgba(255,255,255,0.1)' } : {}}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {methods.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 mb-5" style={{ touchAction: 'pan-x' }}>
+                  {methods.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setPaymentMethod(paymentMethod === m ? '' : m)}
+                      className={cn(chip, paymentMethod === m ? 'bg-paper text-ink' : 'text-paper/60')}
+                      style={paymentMethod !== m ? { background: 'rgba(255,255,255,0.1)' } : {}}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </motion.div>
 
-            {/* Payment method chips */}
-            {methods.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 mb-5" style={{ touchAction: 'pan-x' }}>
-                {methods.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setPaymentMethod(paymentMethod === m ? '' : m)}
-                    className={cn(chip, paymentMethod === m ? 'bg-paper text-ink' : 'text-paper/60')}
-                    style={paymentMethod !== m ? { background: 'rgba(255,255,255,0.1)' } : {}}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* Save — last to appear */}
+            <motion.div style={{ opacity: saveOp, y: saveY }}>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!canSave}
+                className="w-full h-12 rounded-xl bg-accent text-white text-sm font-bold uppercase tracking-widest flex items-center justify-center transition-all active:scale-[0.97] disabled:opacity-30"
+              >
+                {uiState === 'saving'  ? <Loader2 className="h-5 w-5 animate-spin" /> :
+                 uiState === 'success' ? <Check   className="h-5 w-5" />             :
+                 'Save'}
+              </button>
+            </motion.div>
 
-            {/* Save */}
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={!canSave}
-              className="w-full h-12 rounded-xl bg-accent text-white text-sm font-bold uppercase tracking-widest flex items-center justify-center transition-all active:scale-[0.97] disabled:opacity-30"
-            >
-              {uiState === 'saving'  ? <Loader2 className="h-5 w-5 animate-spin" /> :
-               uiState === 'success' ? <Check   className="h-5 w-5" />             :
-               'Save'}
-            </button>
           </div>
-        </motion.div>
+        </div>
       </motion.div>
     </div>
   );
 }
-
-// ── utils ────────────────────────────────────────────────────────────────────
-function lerp(a: number, b: number, t: number)  { return a + (b - a) * t; }
-function clamp01(v: number)                      { return Math.max(0, Math.min(1, v)); }
