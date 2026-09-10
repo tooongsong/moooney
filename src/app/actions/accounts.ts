@@ -192,20 +192,25 @@ export async function adjustAccountBalance(
   const deltaCents = toCents(targetBalance) - toCents(detail.balance);
   if (deltaCents === 0) return { success: true };
 
-  await db.insert(transactions).values({
-    id:              randomUUID(),
-    userId:          user.id,
-    date:            new Date(),
-    amount:          deltaCents / 100,
-    type:            BALANCE_ADJUSTMENT_TYPE,
-    category:        BALANCE_ADJUSTMENT_CATEGORY,
-    merchant:        'Balance adjustment',
-    description:     'Balance adjustment',
-    paymentMethodId: accountId,
-  });
+  try {
+    await db.insert(transactions).values({
+      id:              randomUUID(),
+      userId:          user.id,
+      date:            new Date(),
+      amount:          deltaCents / 100,
+      type:            BALANCE_ADJUSTMENT_TYPE,
+      category:        BALANCE_ADJUSTMENT_CATEGORY,
+      merchant:        'Balance adjustment',
+      description:     'Balance adjustment',
+      paymentMethodId: accountId,
+    });
 
-  revalidatePath('/accounts');
-  revalidatePath('/');
+    revalidatePath('/accounts');
+    revalidatePath('/');
 
-  return { success: true };
+    return { success: true };
+  } catch (error) {
+    console.error('adjustAccountBalance error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
 }
