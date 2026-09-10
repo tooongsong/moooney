@@ -31,19 +31,19 @@ export function EditBalanceDialog({ accountId, currentBalance, isLiability }: Ed
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'input' | 'confirm'>('input');
   const [value, setValue] = useState(() =>
-    (isLiability ? Math.abs(currentBalance) : currentBalance).toFixed(2)
+    (isLiability ? -currentBalance : currentBalance).toFixed(2)
   );
   const [isSaving, setIsSaving] = useState(false);
 
   function reset() {
     setStep('input');
-    setValue((isLiability ? Math.abs(currentBalance) : currentBalance).toFixed(2));
+    setValue((isLiability ? -currentBalance : currentBalance).toFixed(2));
     setIsSaving(false);
   }
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (!next) reset();
+    reset();
   }
 
   const enteredValue = parseFloat(value);

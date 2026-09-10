@@ -202,6 +202,7 @@ export async function adjustAccountBalance(
       category:        BALANCE_ADJUSTMENT_CATEGORY,
       merchant:        'Balance adjustment',
       description:     'Balance adjustment',
+      paymentMethod:   detail.name,
       paymentMethodId: accountId,
     });
 
