@@ -1,7 +1,7 @@
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, desc, eq, gte, inArray, isNull, lte, like, or } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, like, ne, or } from 'drizzle-orm';
 import { startOfMonth, endOfMonth, startOfDay, endOfDay, parse } from 'date-fns';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
@@ -16,7 +16,7 @@ async function getUser() {
   return user;
 }
 import { openai, modelName, ExtractionSchema, buildExtractionSystemPrompt } from '@/lib/openai';
-import { CATEGORIES, DEFAULT_CATEGORY, type TransactionType } from '@/lib/categories';
+import { CATEGORIES, DEFAULT_CATEGORY, BALANCE_ADJUSTMENT_TYPE, type TransactionType } from '@/lib/categories';
 import { toDateInputValue, parseDateInputValue } from '@/lib/utils';
 
 /** Resolve a single account name → id for the current user. */
@@ -317,7 +317,7 @@ export async function getHomeData() {
       where: and(eq(transactions.userId, user.id), gte(transactions.date, monthStart), lte(transactions.date, monthEnd)),
     }),
     db.query.transactions.findMany({
-      where: eq(transactions.userId, user.id),
+      where: and(eq(transactions.userId, user.id), ne(transactions.type, BALANCE_ADJUSTMENT_TYPE)),
       orderBy: [desc(transactions.date), desc(transactions.createdAt)],
       limit: 5,
     }),
@@ -362,12 +362,14 @@ export async function listTransactions({
   category,
   account,
   allTime,
+  includeAdjustments,
 }: {
   query?: string;
   month?: string;
   category?: string;
   account?: string;
   allTime?: boolean;
+  includeAdjustments?: boolean;
 }) {
   const user = await getUser();
 
@@ -387,6 +389,7 @@ export async function listTransactions({
       category ? eq(transactions.category, category) : undefined,
       account ? eq(transactions.paymentMethod, account) : undefined,
       query ? or(like(transactions.merchant, `%${query}%`), like(transactions.description, `%${query}%`)) : undefined,
+      includeAdjustments ? undefined : ne(transactions.type, BALANCE_ADJUSTMENT_TYPE),
     ),
     orderBy: [desc(transactions.date), desc(transactions.createdAt)],
   });
