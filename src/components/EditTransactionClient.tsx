@@ -6,6 +6,7 @@ import { ConfirmTransactionForm, type ConfirmFormValues } from '@/components/Con
 import { updateTransaction, type SaveTransactionInput } from '@/app/actions/transactions';
 import { toDateInputValue } from '@/lib/utils';
 import type { Transaction } from '@/db/schema';
+import type { TransactionType } from '@/lib/categories';
 
 interface EditTransactionClientProps {
   transaction: Transaction;
@@ -21,7 +22,7 @@ export function EditTransactionClient({ transaction, categories, paymentMethods 
     merchant: transaction.merchant,
     category: transaction.category,
     date: toDateInputValue(transaction.date),
-    type: transaction.type,
+    type: transaction.type as TransactionType, // safe: the parent page (/history/[id]/page.tsx) never renders this component for a balance_adjustment row
     description: transaction.description,
     paymentMethod: transaction.paymentMethod || '',
     notes: transaction.notes || '',
