@@ -32,7 +32,7 @@ export function MonthPicker({ open, onClose, selectedYear, selectedMonth, onSele
       <DialogContent
         showCloseButton={false}
         className="rounded-t-3xl rounded-b-none border-0 p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] gap-4 bg-paper-card max-w-none w-full"
-        style={{ position: 'fixed', top: 'auto', bottom: 0, left: 0, right: 0, transform: 'none' }}
+        style={{ position: 'fixed', top: 'auto', bottom: 0, left: 0, right: 0, transform: 'none', translate: 'none' }}
       >
         <DialogTitle className="sr-only">Select month</DialogTitle>
         <div className="flex items-center justify-center gap-4">

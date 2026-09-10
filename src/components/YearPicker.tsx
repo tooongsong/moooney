@@ -25,7 +25,7 @@ export function YearPicker({ open, onClose, selectedYear, availableYears, onSele
       <DialogContent
         showCloseButton={false}
         className="rounded-t-3xl rounded-b-none border-0 p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] gap-2 bg-paper-card max-w-none w-full max-h-[70vh] overflow-y-auto"
-        style={{ position: 'fixed', top: 'auto', bottom: 0, left: 0, right: 0, transform: 'none' }}
+        style={{ position: 'fixed', top: 'auto', bottom: 0, left: 0, right: 0, transform: 'none', translate: 'none' }}
       >
         <DialogTitle className="sr-only">Select year</DialogTitle>
         <div className="flex flex-col gap-1.5">

@@ -37,6 +37,15 @@ function AnimatedAmount({ value }: { value: number }) {
   return <ResponsiveAmount value={display} baseSize={56} minSize={28} />;
 }
 
+function weeklyTrend(dailyTrend: { day: number; spend: number }[]): TrendBarItem[] {
+  const weeks: TrendBarItem[] = [];
+  for (let i = 0; i < dailyTrend.length; i += 7) {
+    const chunk = dailyTrend.slice(i, i + 7);
+    weeks.push({ key: `W${weeks.length + 1}`, value: chunk.reduce((sum, d) => sum + d.spend, 0) });
+  }
+  return weeks;
+}
+
 function parseMonthKey(monthKey: string): { year: number; month: number } {
   const [y, m] = monthKey.split('-').map(Number);
   return { year: y, month: m };
@@ -102,7 +111,7 @@ export function OverviewClient({ data, period, currentYear, currentMonth }: Over
 
   const trendItems: TrendBarItem[] =
     period === 'month'
-      ? (data.dailyTrend ?? []).map((d) => ({ key: String(d.day).padStart(2, '0'), value: d.spend }))
+      ? weeklyTrend(data.dailyTrend ?? [])
       : period === 'year'
         ? (data.monthlyTrend ?? []).map((m) => {
             const isFuture = viewYear > currentYear || (viewYear === currentYear && m.month > currentMonth);
@@ -114,7 +123,7 @@ export function OverviewClient({ data, period, currentYear, currentMonth }: Over
           })
         : (data.yearlyTrend ?? []).map((y) => ({ key: String(y.year), value: y.spend }));
 
-  const labelEvery = period === 'month' ? 5 : 1;
+  const labelEvery = 1;
 
   const viewAllHref =
     period === 'month' ? `/history?month=${data.monthKey}`
