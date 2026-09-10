@@ -4,6 +4,7 @@ import { ChevronLeft, Pencil } from 'lucide-react';
 import { AccountTypeIcon } from '@/components/AccountTypeIcon';
 import { HistoryList } from '@/components/HistoryList';
 import { BottomNav } from '@/components/BottomNav';
+import { EditBalanceDialog } from '@/components/EditBalanceDialog';
 import { getAccountDetail } from '@/app/actions/accounts';
 import { listHistoryItems } from '@/app/actions/history';
 import { formatCurrency } from '@/lib/utils';
@@ -55,9 +56,12 @@ export default async function AccountDetailPage({
         {detail.institution && (
           <p className="text-xs text-ink-faint mb-1">{detail.institution}</p>
         )}
-        <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-2">
-          {detail.isLiability ? 'Amount Owed' : 'Current Balance'}
-        </p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft">
+            {detail.isLiability ? 'Amount Owed' : 'Current Balance'}
+          </p>
+          <EditBalanceDialog accountId={detail.id} currentBalance={detail.balance} isLiability={detail.isLiability} />
+        </div>
         <ResponsiveAmount
           value={Math.abs(detail.balance)}
           baseSize={60}
