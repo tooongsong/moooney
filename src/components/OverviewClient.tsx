@@ -34,7 +34,7 @@ function AnimatedAmount({ value }: { value: number }) {
     return () => controls.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
-  return <ResponsiveAmount value={display} baseSize={56} minSize={28} />;
+  return <ResponsiveAmount value={display} baseSize={56} minSize={28} split />;
 }
 
 function weeklyTrend(dailyTrend: { day: number; spend: number }[]): TrendBarItem[] {

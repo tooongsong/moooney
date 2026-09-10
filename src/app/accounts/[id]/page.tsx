@@ -68,6 +68,7 @@ export default async function AccountDetailPage({
           minSize={24}
           negative={detail.balance < 0}
           suffix={detail.isLiability && detail.balance < 0 ? 'owed' : undefined}
+          split
         />
         {detail.isLiability && detail.creditLimit && (
           <p className="text-xs text-ink-faint mt-2">

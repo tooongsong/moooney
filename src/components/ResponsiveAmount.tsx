@@ -71,6 +71,7 @@ export function ResponsiveAmount({
             style={{ fontSize: '0.33em' }}
           >
             .{c}
+            {suffix ? ` ${suffix}` : ''}
           </span>
         </span>
       </div>

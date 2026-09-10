@@ -49,7 +49,7 @@ export default async function AccountsPage() {
             <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-3">Accounts</p>
 
             {/* Net worth number */}
-            <ResponsiveAmount value={netWorth} baseSize={68} minSize={28} className="mb-3" />
+            <ResponsiveAmount value={netWorth} baseSize={68} minSize={28} className="mb-3" split />
 
             {/* Inline assets / owed — one line, no grid */}
             <div className="flex items-center gap-3 text-sm">
