@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { SwipeableTransactionRow } from '@/components/SwipeableTransactionRow';
 import { SwipeableTransferRow } from '@/components/SwipeableTransferRow';
+import { AdjustmentRow } from '@/components/AdjustmentRow';
+import { BALANCE_ADJUSTMENT_TYPE } from '@/lib/categories';
 import type { HistoryItem } from '@/app/actions/history';
 
 export function HistoryList({ transactions }: { transactions: HistoryItem[] }) {
@@ -33,6 +35,8 @@ export function HistoryList({ transactions }: { transactions: HistoryItem[] }) {
       {items.map((item) =>
         item.kind === 'transfer' ? (
           <SwipeableTransferRow key={item.id} transfer={item} onDeleted={handleDeleted} />
+        ) : item.type === BALANCE_ADJUSTMENT_TYPE ? (
+          <AdjustmentRow key={item.id} transaction={item} />
         ) : (
           <SwipeableTransactionRow key={item.id} transaction={item} onDeleted={handleDeleted} />
         )

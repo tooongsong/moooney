@@ -17,7 +17,7 @@ export default async function AccountDetailPage({
   const { id } = await params;
   const [detail, history] = await Promise.all([
     getAccountDetail(id),
-    listHistoryItems({ account: undefined, allTime: true }),
+    listHistoryItems({ account: undefined, allTime: true, includeAdjustments: true }),
   ]);
 
   if (!detail) notFound();
