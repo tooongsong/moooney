@@ -17,6 +17,8 @@ import { formatCurrency } from '@/lib/utils';
 interface OverviewClientProps {
   data: OverviewData;
   period: OverviewPeriod;
+  currentYear: number;
+  currentMonth: number;
 }
 
 const MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -40,16 +42,12 @@ function parseMonthKey(monthKey: string): { year: number; month: number } {
   return { year: y, month: m };
 }
 
-export function OverviewClient({ data, period }: OverviewClientProps) {
+export function OverviewClient({ data, period, currentYear, currentMonth }: OverviewClientProps) {
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [yearPickerOpen, setYearPickerOpen] = useState(false);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
-
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
 
   const { year: viewYear, month: viewMonth } =
     period === 'month' && data.monthKey

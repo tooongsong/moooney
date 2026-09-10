@@ -28,6 +28,9 @@ export default async function OverviewPage({
   const period: OverviewPeriod = params.period === 'year' ? 'year' : params.period === 'all' ? 'all' : 'month';
   const anchor = parseAnchor(period, params.month, params.year);
   const data = await getOverviewData(period, anchor);
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
 
   return (
     <div className="d-max-xl max-lg:max-w-md mx-auto px-6 min-h-screen pb-28 bg-paper">
@@ -36,7 +39,7 @@ export default async function OverviewPage({
       </div>
 
       <section className="pt-2 lg:pt-8">
-        <OverviewClient data={data} period={period} />
+        <OverviewClient data={data} period={period} currentYear={currentYear} currentMonth={currentMonth} />
       </section>
 
       <BottomNav />
