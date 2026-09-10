@@ -1,8 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { ArrowUp, Camera, Check, ChevronRight, ImagePlus, Loader2, PenLine, Plus, Settings2, X } from 'lucide-react';
+import { ArrowUp, Camera, Check, ChevronRight, ImagePlus, Loader2, PenLine, Plus, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { animate, motion, useMotionValue, useTransform } from 'motion/react';
@@ -18,9 +17,9 @@ const SPRING_OPEN  = { type: 'spring' as const, stiffness: 380, damping: 30, mas
 const SPRING_CLOSE = { type: 'spring' as const, stiffness: 440, damping: 36, mass: 1 };
 
 // ── geometry ──────────────────────────────────────────────────────────────────
-const PILL_W     = 108;  // collapsed pill width px
-const PILL_H     = 32;   // collapsed pill height px
-const BUMP_D     = 30;   // "+" bump diameter — half tucks into the pill, half hangs below it
+const PILL_W     = 96;   // collapsed pill width px
+const PILL_H     = 28;   // collapsed pill height px
+const BUMP_D     = 26;   // "+" bump diameter — half tucks into the pill, half hangs below it
 const HIT_H      = PILL_H + BUMP_D / 2; // collapsed tap/drag target: pill + the bump peeking out
 const EXPANDED_H = 272;  // input/review panel height px
 const EDIT_H     = 340;  // editing form height px
@@ -60,12 +59,7 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-interface QuickAddIslandProps {
-  month?: string;      // e.g. "SEP 26" — shown left of pill when collapsed
-  manageHref?: string; // e.g. "/manage" — gear icon right of pill when collapsed
-}
-
-export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
+export function QuickAddIsland() {
   const router = useRouter();
 
   // Measure inner row width for full-width expanded state
@@ -109,7 +103,6 @@ export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
 
   // Pill icon fades very fast — shape transcends pill quickly
   const pillOp = useTransform(progress, [0, 0.14], [1, 0]);
-  const sideOp = useTransform(progress, [0, 0.16], [1, 0]);
 
   // Bump tracks the pill's live height so it always overlaps its bottom edge by half —
   // melts away (fades + shrinks) the instant a drag/tap starts opening the panel.
@@ -332,7 +325,7 @@ export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
           so two overlapping solid shapes render as one continuous organic blob. */}
       <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
         <defs>
-          <filter id="quickAddGoo">
+          <filter id="quickAddGoo" colorInterpolationFilters="sRGB">
             <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
             <feColorMatrix in="blur" mode="matrix"
               values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -11" />
@@ -350,25 +343,13 @@ export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
       >
         {/*
           Inner row: flex justify-center so the pill stays horizontally centered
-          and blooms outward symmetrically as it expands.
-          Month/manage are absolute-positioned in this row.
+          and blooms outward symmetrically as it expands. The island is the only
+          thing in this row — nothing else shares the top strip with it.
         */}
         <div
           ref={rowRef}
-          className="relative py-2 flex items-center justify-center"
+          className="relative py-1.5 flex items-center justify-center"
         >
-          {/* Month label — far left, fades as island expands */}
-          {month && (
-            <motion.div
-              className="absolute left-0 top-1/2 -translate-y-1/2 pointer-events-none select-none"
-              style={{ opacity: sideOp }}
-            >
-              <span className="text-[9px] font-bold uppercase tracking-widest text-ink-faint">
-                {month}
-              </span>
-            </motion.div>
-          )}
-
           {/* ── THE ISLAND ── */}
           <motion.div
             style={{
@@ -414,8 +395,8 @@ export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
                 className="absolute left-1/2 flex items-center justify-center"
                 style={{ top: bumpTop, x: '-50%', width: BUMP_D, height: BUMP_D, scale: bumpScale }}
               >
-                <span className="w-5 h-5 rounded-full bg-accent flex items-center justify-center shrink-0">
-                  <Plus className="w-[11px] h-[11px] text-white stroke-[2.5]" />
+                <span className="w-[18px] h-[18px] rounded-full bg-accent flex items-center justify-center shrink-0">
+                  <Plus className="w-[10px] h-[10px] text-white stroke-2" />
                 </span>
               </motion.div>
             </motion.div>
@@ -729,21 +710,6 @@ export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
               )}
             </motion.div>
           </motion.div>
-
-          {/* Manage icon — far right, fades as island expands */}
-          {manageHref && (
-            <motion.div
-              className="absolute right-0 top-1/2 -translate-y-1/2"
-              style={{ opacity: sideOp, pointerEvents: isExpanded ? 'none' : 'auto' }}
-            >
-              <Link
-                href={manageHref}
-                className="flex items-center justify-center p-1.5 -mr-1.5 text-ink-faint hover:text-ink transition-colors"
-              >
-                <Settings2 className="h-[15px] w-[15px]" />
-              </Link>
-            </motion.div>
-          )}
         </div>
       </div>
     </>

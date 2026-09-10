@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Settings2 } from 'lucide-react';
 import { getHomeData } from '@/app/actions/transactions';
 import { getAccountBalances } from '@/app/actions/accounts';
 import { TransactionRow } from '@/components/TransactionRow';
@@ -22,7 +22,7 @@ export default async function HomePage() {
   ]);
 
   const balanceSplit = splitCurrency(monthBalance);
-  const monthLabel = new Intl.DateTimeFormat('en-US', { month: 'short', year: '2-digit' })
+  const monthShort = new Intl.DateTimeFormat('en-US', { month: 'short' })
     .format(new Date()).toUpperCase();
 
   return (
@@ -30,7 +30,7 @@ export default async function HomePage() {
 
       {/* QuickAddIsland — mobile only */}
       <div className="d-mobile-only">
-        <QuickAddIsland month={monthLabel} manageHref="/settings" />
+        <QuickAddIsland />
       </div>
 
       {/* Two-column on desktop, single column on mobile */}
@@ -38,8 +38,18 @@ export default async function HomePage() {
 
         {/* LEFT: hero + breakdown + stats */}
         <div className="d-col-grow">
-          <section className="pt-8 pb-8">
-            <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-3">Spent this month</p>
+          <section className="pt-2 pb-8 lg:pt-8">
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-3">
+                Spent this month <span className="text-ink-faint/50">· {monthShort}</span>
+              </p>
+              <Link
+                href="/settings"
+                className="d-mobile-only shrink-0 -m-2 p-2 text-ink-faint hover:text-ink transition-colors"
+              >
+                <Settings2 className="h-[15px] w-[15px]" strokeWidth={2} />
+              </Link>
+            </div>
             <ResponsiveAmount value={monthSpend} baseSize={72} minSize={28} split />
           </section>
 
