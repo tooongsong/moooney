@@ -1,18 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useTransition } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { subMonths, addMonths } from 'date-fns';
 import { animate, AnimatePresence, motion } from 'motion/react';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 import { TrendBars, type TrendBarItem } from '@/components/TrendBars';
 import { CategoryBlocks } from '@/components/CategoryBlocks';
+import { PeriodNavigator } from '@/components/PeriodNavigator';
+import { MonthPicker } from '@/components/MonthPicker';
+import { YearPicker } from '@/components/YearPicker';
+import { getAvailableYears, type OverviewData, type OverviewPeriod } from '@/app/actions/overview';
 import { formatCurrency } from '@/lib/utils';
-import type { OverviewData, OverviewPeriod } from '@/app/actions/overview';
 
 interface OverviewClientProps {
-  month: OverviewData;
-  year: OverviewData;
-  all: OverviewData;
+  data: OverviewData;
+  period: OverviewPeriod;
 }
 
 const MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -31,48 +35,128 @@ function AnimatedAmount({ value }: { value: number }) {
   return <ResponsiveAmount value={display} baseSize={56} minSize={28} />;
 }
 
-export function OverviewClient({ month, year, all }: OverviewClientProps) {
-  const [mode, setMode] = useState<OverviewPeriod>('month');
-  const data = mode === 'month' ? month : mode === 'year' ? year : all;
+function parseMonthKey(monthKey: string): { year: number; month: number } {
+  const [y, m] = monthKey.split('-').map(Number);
+  return { year: y, month: m };
+}
+
+export function OverviewClient({ data, period }: OverviewClientProps) {
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  const [yearPickerOpen, setYearPickerOpen] = useState(false);
+  const [availableYears, setAvailableYears] = useState<number[]>([]);
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  const { year: viewYear, month: viewMonth } =
+    period === 'month' && data.monthKey
+      ? parseMonthKey(data.monthKey)
+      : { year: period === 'year' ? Number(data.label) : currentYear, month: currentMonth };
+
+  function navigate(params: Record<string, string>) {
+    startTransition(() => router.push(`/overview?${new URLSearchParams(params).toString()}`));
+  }
+
+  function goToMode(nextMode: OverviewPeriod) {
+    if (nextMode === period) return;
+    if (nextMode === 'year' && period === 'month') {
+      navigate({ period: 'year', year: String(viewYear) });
+    } else if (nextMode === 'all') {
+      navigate({ period: 'all' });
+    } else if (nextMode === 'month') {
+      navigate({ period: 'month', month: `${currentYear}-${String(currentMonth).padStart(2, '0')}` });
+    } else {
+      navigate({ period: 'year', year: String(currentYear) });
+    }
+  }
+
+  function prevPeriod() {
+    if (period === 'month') {
+      const d = subMonths(new Date(viewYear, viewMonth - 1, 1), 1);
+      navigate({ period: 'month', month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` });
+    } else if (period === 'year') {
+      navigate({ period: 'year', year: String(viewYear - 1) });
+    }
+  }
+
+  function nextPeriod() {
+    if (period === 'month') {
+      const d = addMonths(new Date(viewYear, viewMonth - 1, 1), 1);
+      navigate({ period: 'month', month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` });
+    } else if (period === 'year') {
+      navigate({ period: 'year', year: String(viewYear + 1) });
+    }
+  }
+
+  const isCurrentPeriod =
+    period === 'month' ? viewYear === currentYear && viewMonth === currentMonth
+    : period === 'year' ? viewYear === currentYear
+    : true;
+
+  async function openYearPicker() {
+    const years = await getAvailableYears();
+    setAvailableYears(years);
+    setYearPickerOpen(true);
+  }
 
   const trendItems: TrendBarItem[] =
-    mode === 'month'
+    period === 'month'
       ? (data.dailyTrend ?? []).map((d) => ({ key: String(d.day).padStart(2, '0'), value: d.spend }))
-      : mode === 'year'
+      : period === 'year'
         ? (data.monthlyTrend ?? []).map((m) => ({
             key: MONTH_NAMES[m.month - 1],
             value: m.spend,
-            href: `/history?month=${year.label}-${String(m.month).padStart(2, '0')}`,
+            href: `/overview?period=month&month=${viewYear}-${String(m.month).padStart(2, '0')}`,
           }))
         : (data.yearlyTrend ?? []).map((y) => ({ key: String(y.year), value: y.spend }));
 
-  const labelEvery = mode === 'month' ? 5 : 1;
+  const labelEvery = period === 'month' ? 5 : 1;
 
   const viewAllHref =
-    mode === 'month'
-      ? `/history?month=${month.monthKey}`
-      : mode === 'all'
-        ? '/history?allTime=true'
-        : '/history'; // year mode: known deviation, see spec — falls back to History's own current-month default
+    period === 'month' ? `/history?month=${data.monthKey}`
+    : period === 'all' ? '/history?allTime=true'
+    : `/history?year=${viewYear}`;
+
+  const navigatorLabel =
+    period === 'month'
+      ? new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric' }).format(new Date(viewYear, viewMonth - 1, 1)).toUpperCase()
+      : String(viewYear);
+
+  const contentKey = period === 'month' ? `month-${data.monthKey}` : period === 'year' ? `year-${data.label}` : 'all';
 
   return (
     <div>
       <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-4">Overview</p>
 
-      <div className="flex gap-2 mb-8">
+      <div className="flex gap-2 mb-6">
         {(['month', 'year', 'all'] as const).map((m) => (
           <button
             key={m}
             type="button"
-            onClick={() => setMode(m)}
+            onClick={() => goToMode(m)}
             className={`text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-full transition-colors ${
-              mode === m ? 'bg-ink text-paper' : 'bg-sand text-ink-soft'
+              period === m ? 'bg-ink text-paper' : 'bg-sand text-ink-soft'
             }`}
           >
             {m}
           </button>
         ))}
       </div>
+
+      {period !== 'all' && (
+        <div className="mb-4">
+          <PeriodNavigator
+            label={navigatorLabel}
+            onPrev={prevPeriod}
+            onNext={nextPeriod}
+            nextDisabled={isCurrentPeriod}
+            onLabelClick={() => (period === 'month' ? setMonthPickerOpen(true) : openYearPicker())}
+          />
+        </div>
+      )}
 
       <section className="pb-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-3">
@@ -100,7 +184,7 @@ export function OverviewClient({ month, year, all }: OverviewClientProps) {
 
       <AnimatePresence mode="wait">
         <motion.div
-          key={mode}
+          key={contentKey}
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
@@ -121,6 +205,31 @@ export function OverviewClient({ month, year, all }: OverviewClientProps) {
           </section>
         </motion.div>
       </AnimatePresence>
+
+      {period === 'month' && (
+        <MonthPicker
+          open={monthPickerOpen}
+          onClose={() => setMonthPickerOpen(false)}
+          selectedYear={viewYear}
+          selectedMonth={viewMonth}
+          onSelect={(y, m) => {
+            setMonthPickerOpen(false);
+            navigate({ period: 'month', month: `${y}-${String(m).padStart(2, '0')}` });
+          }}
+        />
+      )}
+      {period === 'year' && (
+        <YearPicker
+          open={yearPickerOpen}
+          onClose={() => setYearPickerOpen(false)}
+          selectedYear={viewYear}
+          availableYears={availableYears}
+          onSelect={(y) => {
+            setYearPickerOpen(false);
+            navigate({ period: 'year', year: String(y) });
+          }}
+        />
+      )}
     </div>
   );
 }
