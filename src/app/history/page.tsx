@@ -11,15 +11,16 @@ import { getAllCategories, getPaymentMethodNames } from '@/app/actions/manage';
 export default async function HistoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; month?: string; category?: string; account?: string }>;
+  searchParams: Promise<{ q?: string; month?: string; category?: string; account?: string; allTime?: string }>;
 }) {
   const params = await searchParams;
   const [data, categories, accountNames] = await Promise.all([
     listHistoryItems({
-      query:    params.q,
-      month:    params.month,
-      category: params.category,
-      account:  params.account,
+      query:      params.q,
+      month:      params.month,
+      category:   params.category,
+      account:    params.account,
+      allTime:    params.allTime === 'true',
     }),
     getAllCategories(),
     getPaymentMethodNames(),
