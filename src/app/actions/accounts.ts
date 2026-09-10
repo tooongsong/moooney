@@ -2,10 +2,14 @@
 
 import { and, asc, eq, gte, isNull, lte, or } from 'drizzle-orm';
 import { startOfMonth, endOfMonth } from 'date-fns';
+import { randomUUID } from 'crypto';
 import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { paymentMethods, transactions, transfers } from '@/db/schema';
 import { ASSET_TYPES, LIABILITY_TYPES } from '@/lib/accountTypes';
+import { toCents } from '@/lib/balanceAdjustment';
+import { BALANCE_ADJUSTMENT_TYPE, BALANCE_ADJUSTMENT_CATEGORY } from '@/lib/categories';
 import { createClient } from '@/lib/supabase/server';
 
 async function getUser() {
@@ -74,6 +78,7 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
       const amt = toNum(t.amount, 'transaction.amount');
       if (t.type === 'income' || t.type === 'refund') delta += amt;
       else if (t.type === 'expense') delta -= amt;
+      else if (t.type === BALANCE_ADJUSTMENT_TYPE) delta += amt; // amt already signed
     }
 
     for (const tr of trRows) {
@@ -144,6 +149,7 @@ export async function getAccountDetail(id: string): Promise<AccountDetail | null
     const amt = toNum(t.amount, 'transaction.amount');
     if (t.type === 'income' || t.type === 'refund') delta += amt;
     else if (t.type === 'expense') delta -= amt;
+    else if (t.type === BALANCE_ADJUSTMENT_TYPE) delta += amt; // amt already signed
   }
   for (const tr of allTr) {
     const amt = toNum(tr.amount, 'transfer.amount');
@@ -171,4 +177,35 @@ export async function getAccountDetail(id: string): Promise<AccountDetail | null
     thisMonthIn,
     thisMonthOut,
   };
+}
+
+export async function adjustAccountBalance(
+  accountId: string,
+  targetBalance: number,
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser();
+  const detail = await getAccountDetail(accountId);
+  if (!detail) return { success: false, error: 'Account not found' };
+
+  // Never trust a client-computed delta — re-derive it here from the
+  // account's freshly-read current balance and the requested target.
+  const deltaCents = toCents(targetBalance) - toCents(detail.balance);
+  if (deltaCents === 0) return { success: true };
+
+  await db.insert(transactions).values({
+    id:              randomUUID(),
+    userId:          user.id,
+    date:            new Date(),
+    amount:          deltaCents / 100,
+    type:            BALANCE_ADJUSTMENT_TYPE,
+    category:        BALANCE_ADJUSTMENT_CATEGORY,
+    merchant:        'Balance adjustment',
+    description:     'Balance adjustment',
+    paymentMethodId: accountId,
+  });
+
+  revalidatePath('/accounts');
+  revalidatePath('/');
+
+  return { success: true };
 }
