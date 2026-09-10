@@ -7,7 +7,7 @@ import { Home, ListFilter, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TABS = [
-  { href: '/',         icon: Home,       label: 'Home',     match: (p: string) => p === '/' },
+  { href: '/',         icon: Home,       label: 'Home',     match: (p: string) => p === '/' || p === '/overview' },
   { href: '/accounts', icon: Wallet,     label: 'Accounts', match: (p: string) => p.startsWith('/accounts') },
   { href: '/history',  icon: ListFilter, label: 'History',  match: (p: string) => p === '/history' },
 ];

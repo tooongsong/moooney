@@ -56,6 +56,9 @@ export default async function HomePage() {
           <section className="pb-8 border-b border-line">
             <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-5">By category</h2>
             <CategoryBreakdown data={categoryData} />
+            <Link href="/overview" className="mt-4 inline-flex items-center gap-0.5 text-xs text-ink-faint hover:text-ink transition-colors">
+              Overview <ArrowRight className="h-3 w-3" />
+            </Link>
           </section>
 
           <section className="grid grid-cols-3 gap-4 py-8">
