@@ -1,7 +1,7 @@
 'use server';
 
 import { and, eq, gte, lte } from 'drizzle-orm';
-import { startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
+import { startOfMonth, endOfMonth, startOfYear, endOfYear, isSameMonth, isSameYear, getDaysInMonth } from 'date-fns';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
 import { transactions } from '@/db/schema';
@@ -43,9 +43,9 @@ function toAggregateInput(rows: { type: string; amount: number | string; categor
   return rows.map((r) => ({ type: r.type, amount: Number(r.amount) || 0, category: r.category }));
 }
 
-async function getMonthOverview(userId: string, now: Date): Promise<OverviewData> {
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
+async function getMonthOverview(userId: string, anchor: Date): Promise<OverviewData> {
+  const monthStart = startOfMonth(anchor);
+  const monthEnd = endOfMonth(anchor);
   const rows = await db.query.transactions.findMany({
     where: and(eq(transactions.userId, userId), gte(transactions.date, monthStart), lte(transactions.date, monthEnd)),
     columns: { type: true, amount: true, category: true, date: true },
@@ -53,11 +53,16 @@ async function getMonthOverview(userId: string, now: Date): Promise<OverviewData
 
   const result = aggregateTransactions(toAggregateInput(rows));
 
-  const today = now.getDate(); // 1-31, always ≥ 1
+  // "Elapsed days" is only "today's day-of-month" when anchor IS the current
+  // real month. A fully-past month has ALL its days elapsed, regardless of
+  // what day-of-month the anchor Date object happens to represent (e.g. day 1).
+  const realNow = new Date();
+  const today = isSameMonth(anchor, realNow) ? realNow.getDate() : getDaysInMonth(anchor);
+
   const dayBuckets = new Map<number, AggregateInput[]>();
   for (const r of rows) {
     const day = r.date.getDate();
-    if (day > today) continue; // no future days
+    if (day > today) continue; // only excludes real future days when anchor is the current month
     if (!dayBuckets.has(day)) dayBuckets.set(day, []);
     dayBuckets.get(day)!.push({ type: r.type, amount: Number(r.amount) || 0, category: r.category });
   }
@@ -68,20 +73,20 @@ async function getMonthOverview(userId: string, now: Date): Promise<OverviewData
 
   return {
     period: 'month',
-    label: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(now).toUpperCase(),
+    label: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(anchor).toUpperCase(),
     spend: result.spend,
     income: result.income,
     net: result.net,
     categoryTotals: result.categoryTotals,
     dailyTrend,
     dailyAverage: result.spend / Math.max(1, today),
-    monthKey: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+    monthKey: `${anchor.getFullYear()}-${String(anchor.getMonth() + 1).padStart(2, '0')}`,
   };
 }
 
-async function getYearOverview(userId: string, now: Date): Promise<OverviewData> {
-  const yearStart = startOfYear(now);
-  const yearEnd = endOfYear(now);
+async function getYearOverview(userId: string, anchor: Date): Promise<OverviewData> {
+  const yearStart = startOfYear(anchor);
+  const yearEnd = endOfYear(anchor);
   const rows = await db.query.transactions.findMany({
     where: and(eq(transactions.userId, userId), gte(transactions.date, yearStart), lte(transactions.date, yearEnd)),
     columns: { type: true, amount: true, category: true, date: true },
@@ -95,11 +100,14 @@ async function getYearOverview(userId: string, now: Date): Promise<OverviewData>
   }
   const monthlyTrend = monthBuckets.map((bucket, i) => ({ month: i + 1, spend: aggregateTransactions(bucket).spend }));
 
-  const monthsElapsed = now.getMonth() + 1; // getMonth() is 0-indexed; Jan = month 1 elapsed
+  // Same principle as getMonthOverview: a fully-past year has all 12 months
+  // elapsed, regardless of the anchor Date's own month-of-year.
+  const realNow = new Date();
+  const monthsElapsed = isSameYear(anchor, realNow) ? realNow.getMonth() + 1 : 12;
 
   return {
     period: 'year',
-    label: String(now.getFullYear()),
+    label: String(anchor.getFullYear()),
     spend: result.spend,
     income: result.income,
     net: result.net,
@@ -144,10 +152,23 @@ async function getAllOverview(userId: string): Promise<OverviewData> {
   };
 }
 
-export async function getOverviewData(period: OverviewPeriod): Promise<OverviewData> {
+export async function getOverviewData(period: OverviewPeriod, anchor: Date = new Date()): Promise<OverviewData> {
   const user = await getUser();
-  const now = new Date();
-  if (period === 'month') return getMonthOverview(user.id, now);
-  if (period === 'year') return getYearOverview(user.id, now);
+  if (period === 'month') return getMonthOverview(user.id, anchor);
+  if (period === 'year') return getYearOverview(user.id, anchor);
   return getAllOverview(user.id);
+}
+
+/** Distinct years that have ≥1 transaction, ascending. Used by YearPicker
+ * to show a data-informed year list without running the full lifetime
+ * aggregation (and its extra getAccountBalances round-trip) getAllOverview
+ * does — this only needs the `date` column. */
+export async function getAvailableYears(): Promise<number[]> {
+  const user = await getUser();
+  const rows = await db.query.transactions.findMany({
+    where: eq(transactions.userId, user.id),
+    columns: { date: true },
+  });
+  const years = new Set(rows.map((r) => r.date.getFullYear()));
+  return Array.from(years).sort((a, b) => a - b);
 }

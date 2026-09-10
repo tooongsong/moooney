@@ -2,7 +2,7 @@
 
 import { randomUUID } from 'crypto';
 import { and, desc, eq, gte, inArray, isNull, lte, like, ne, or } from 'drizzle-orm';
-import { startOfMonth, endOfMonth, startOfDay, endOfDay, parse } from 'date-fns';
+import { startOfMonth, endOfMonth, startOfDay, endOfDay, parse, startOfYear, endOfYear } from 'date-fns';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
@@ -351,6 +351,7 @@ export async function getHomeData() {
 export async function listTransactions({
   query,
   month,
+  year,
   category,
   account,
   allTime,
@@ -358,6 +359,7 @@ export async function listTransactions({
 }: {
   query?: string;
   month?: string;
+  year?: number;
   category?: string;
   account?: string;
   allTime?: boolean;
@@ -367,11 +369,16 @@ export async function listTransactions({
 
   let dateFilter;
   if (!allTime) {
-    const parsed = month ? parse(month, 'yyyy-MM', new Date()) : new Date();
-    dateFilter = and(
-      gte(transactions.date, startOfMonth(parsed)),
-      lte(transactions.date, endOfMonth(parsed)),
-    );
+    if (month) {
+      const parsed = parse(month, 'yyyy-MM', new Date());
+      dateFilter = and(gte(transactions.date, startOfMonth(parsed)), lte(transactions.date, endOfMonth(parsed)));
+    } else if (year) {
+      const parsed = new Date(year, 0, 1);
+      dateFilter = and(gte(transactions.date, startOfYear(parsed)), lte(transactions.date, endOfYear(parsed)));
+    } else {
+      const parsed = new Date();
+      dateFilter = and(gte(transactions.date, startOfMonth(parsed)), lte(transactions.date, endOfMonth(parsed)));
+    }
   }
 
   return db.query.transactions.findMany({
