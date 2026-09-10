@@ -20,6 +20,8 @@ const SPRING_CLOSE = { type: 'spring' as const, stiffness: 440, damping: 36, mas
 // ── geometry ──────────────────────────────────────────────────────────────────
 const PILL_W     = 108;  // collapsed pill width px
 const PILL_H     = 32;   // collapsed pill height px
+const BUMP_D     = 30;   // "+" bump diameter — half tucks into the pill, half hangs below it
+const HIT_H      = PILL_H + BUMP_D / 2; // collapsed tap/drag target: pill + the bump peeking out
 const EXPANDED_H = 272;  // input/review panel height px
 const EDIT_H     = 340;  // editing form height px
 const HEADER_H   = 40;
@@ -108,6 +110,11 @@ export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
   // Pill icon fades very fast — shape transcends pill quickly
   const pillOp = useTransform(progress, [0, 0.14], [1, 0]);
   const sideOp = useTransform(progress, [0, 0.16], [1, 0]);
+
+  // Bump tracks the pill's live height so it always overlaps its bottom edge by half —
+  // melts away (fades + shrinks) the instant a drag/tap starts opening the panel.
+  const bumpTop   = useTransform(islandH, (h) => h - BUMP_D / 2);
+  const bumpScale = useTransform(progress, [0, 0.14], [1, 0.4]);
 
   // Content appears late — panel must be mostly formed before revealing
   // At 52% drag: width=full, height=65% → fat squircle shape, header starts
@@ -321,6 +328,18 @@ export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
       <input ref={fileRef} type="file" accept="image/*"
         className="hidden" onChange={(e) => { if (e.target.files?.[0]) extractImage(e.target.files[0]); e.target.value = ''; }} />
 
+      {/* Goo filter: blurs the pill + bump together then re-sharpens the alpha edge,
+          so two overlapping solid shapes render as one continuous organic blob. */}
+      <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
+        <defs>
+          <filter id="quickAddGoo">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
+            <feColorMatrix in="blur" mode="matrix"
+              values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -11" />
+          </filter>
+        </defs>
+      </svg>
+
       {/*
         Sticky container: full-bleed, covers safe-area, IS the page header.
         bg-paper ensures content scrolling under looks clean.
@@ -353,37 +372,65 @@ export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
           {/* ── THE ISLAND ── */}
           <motion.div
             style={{
-              width:                   islandW,
-              height:                  islandH,
-              borderTopLeftRadius:     radTL,
-              borderTopRightRadius:    radTR,
-              borderBottomLeftRadius:  radBL,
-              borderBottomRightRadius: radBR,
-              background:   'var(--ink)',
+              width:        islandW,
+              height:       islandH,
               position:     'relative',
-              overflow:     'hidden',
+              overflow:     'visible', // let the collapsed bump peek out past the pill's own box
               touchAction:  'none',
               userSelect:   'none',
             }}
           >
-            {/* ── COLLAPSED: pill ───────────────────────────────────────── */}
+            {/* ── SHAPE: pill + bump, goo'd into one continuous blob ──────── */}
             <motion.div
-              className="absolute inset-0 flex items-center justify-center cursor-pointer"
-              style={{ opacity: pillOp, pointerEvents: isExpanded ? 'none' : 'auto' }}
+              aria-hidden
+              style={{
+                position:                'absolute',
+                inset:                   0,
+                borderTopLeftRadius:     radTL,
+                borderTopRightRadius:    radTR,
+                borderBottomLeftRadius:  radBL,
+                borderBottomRightRadius: radBR,
+                background:              'var(--ink)',
+                filter:                  'url(#quickAddGoo)',
+                pointerEvents:           'none',
+              }}
+            >
+              <motion.div
+                className="absolute left-1/2 rounded-full"
+                style={{ top: bumpTop, x: '-50%', width: BUMP_D, height: BUMP_D, background: 'var(--ink)', opacity: pillOp, scale: bumpScale }}
+              />
+            </motion.div>
+
+            {/* ── COLLAPSED: tap/drag target — the "+" lives inside the bump ── */}
+            <motion.div
+              className="absolute left-1/2 cursor-pointer"
+              style={{ top: 0, x: '-50%', width: PILL_W, height: HIT_H, opacity: pillOp, pointerEvents: isExpanded ? 'none' : 'auto' }}
               onPointerDown={!isExpanded ? onDown : undefined}
               onPointerMove={!isExpanded ? onMove : undefined}
               onPointerUp={!isExpanded   ? onUp   : undefined}
               onPointerCancel={!isExpanded ? onUp  : undefined}
             >
-              <span className="w-[18px] h-[18px] rounded-full bg-accent flex items-center justify-center shrink-0">
-                <Plus className="w-[10px] h-[10px] text-white stroke-[2.5]" />
-              </span>
+              <motion.div
+                className="absolute left-1/2 flex items-center justify-center"
+                style={{ top: bumpTop, x: '-50%', width: BUMP_D, height: BUMP_D, scale: bumpScale }}
+              >
+                <span className="w-5 h-5 rounded-full bg-accent flex items-center justify-center shrink-0">
+                  <Plus className="w-[11px] h-[11px] text-white stroke-[2.5]" />
+                </span>
+              </motion.div>
             </motion.div>
 
-            {/* ── EXPANDED PANEL ────────────────────────────────────────── */}
-            <div
+            {/* ── EXPANDED PANEL — clips to the panel radius itself now that the shape layer is unclipped ── */}
+            <motion.div
               className="absolute inset-0 flex flex-col"
-              style={{ pointerEvents: isExpanded ? 'auto' : 'none' }}
+              style={{
+                borderTopLeftRadius:     radTL,
+                borderTopRightRadius:    radTR,
+                borderBottomLeftRadius:  radBL,
+                borderBottomRightRadius: radBR,
+                overflow:      'hidden',
+                pointerEvents: isExpanded ? 'auto' : 'none',
+              }}
             >
               {/* Drag handle */}
               <motion.div
@@ -680,7 +727,7 @@ export function QuickAddIsland({ month, manageHref }: QuickAddIslandProps) {
                   </div>
                 </motion.div>
               )}
-            </div>
+            </motion.div>
           </motion.div>
 
           {/* Manage icon — far right, fades as island expands */}

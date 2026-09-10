@@ -44,7 +44,7 @@ export default async function AccountsPage() {
       ) : (
         <>
           {/* ── Net Worth hero ── */}
-          <section className="pt-5 pb-5">
+          <section className="pt-3 pb-5">
             {/* Page identity — small, not a headline */}
             <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-3">Accounts</p>
 
