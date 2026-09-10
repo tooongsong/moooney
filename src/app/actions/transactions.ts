@@ -18,6 +18,7 @@ async function getUser() {
 import { openai, modelName, ExtractionSchema, buildExtractionSystemPrompt } from '@/lib/openai';
 import { CATEGORIES, DEFAULT_CATEGORY, BALANCE_ADJUSTMENT_TYPE, type TransactionType } from '@/lib/categories';
 import { toDateInputValue, parseDateInputValue } from '@/lib/utils';
+import { aggregateTransactions } from '@/lib/spendingAggregate';
 
 /** Resolve a single account name → id for the current user. */
 async function resolveMethodId(userId: string, name: string | null | undefined): Promise<string | null> {
@@ -323,35 +324,26 @@ export async function getHomeData() {
     }),
   ]);
 
-  let monthSpend = 0;
-  let monthIncome = 0;
-  let todaySpend = 0;
-  const categoryTotals = new Map<string, number>();
+  const monthResult = aggregateTransactions(
+    monthTxns.map((t) => ({ type: t.type, amount: Number(t.amount) || 0, category: t.category }))
+  );
 
+  // todaySpend needs a same-day sub-filter aggregateTransactions doesn't do —
+  // kept as its own small loop rather than folded into the shared function.
+  let todaySpend = 0;
   for (const t of monthTxns) {
+    if (t.date < todayStart || t.date > todayEnd) continue;
     const amt = Number(t.amount) || 0;
-    if (t.type === 'expense') {
-      monthSpend += amt;
-      categoryTotals.set(t.category, (categoryTotals.get(t.category) || 0) + amt);
-      if (t.date >= todayStart && t.date <= todayEnd) todaySpend += amt;
-    } else if (t.type === 'income') {
-      monthIncome += amt;
-    } else if (t.type === 'refund') {
-      monthSpend -= amt;
-      if (t.date >= todayStart && t.date <= todayEnd) todaySpend -= amt;
-    }
+    if (t.type === 'expense') todaySpend += amt;
+    else if (t.type === 'refund') todaySpend -= amt;
   }
 
-  const categoryData = Array.from(categoryTotals.entries())
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-
   return {
-    monthSpend,
+    monthSpend: monthResult.spend,
     todaySpend,
-    monthIncome,
-    monthBalance: monthIncome - monthSpend,
-    categoryData,
+    monthIncome: monthResult.income,
+    monthBalance: monthResult.net,
+    categoryData: monthResult.categoryTotals,
     recent,
   };
 }
