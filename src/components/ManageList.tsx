@@ -56,7 +56,6 @@ export function ManageList({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editType, setEditType] = useState<AccountType>('checking');
-  const [editBalance, setEditBalance] = useState('');
   const [editInstitution, setEditInstitution] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
@@ -66,7 +65,6 @@ export function ManageList({
     setEditingId(item.id);
     setEditName(item.name);
     setEditType((item.type as AccountType) ?? 'checking');
-    setEditBalance(item.subtitle?.replace(/[^0-9.-]/g, '') ?? '');
     setEditInstitution(item.institution ?? '');
   }
 
@@ -77,10 +75,9 @@ export function ManageList({
 
     const result = withAccountType && onUpdate
       ? await onUpdate(id, {
-          name:            editName.trim(),
-          type:            editType,
-          startingBalance: editBalance ? parseFloat(editBalance) : undefined,
-          institution:     editInstitution,
+          name:        editName.trim(),
+          type:        editType,
+          institution: editInstitution,
         })
       : onRename
         ? await onRename(id, editName.trim())
@@ -248,15 +245,6 @@ export function ManageList({
                     className="rounded-lg border-line bg-paper text-sm h-9"
                     autoFocus
                   />
-                  {withStartingBalance && (
-                    <Input
-                      value={editBalance}
-                      onChange={(e) => setEditBalance(e.target.value.replace(/[^0-9.-]/g, ''))}
-                      inputMode="decimal"
-                      placeholder="Balance"
-                      className="rounded-lg border-line bg-paper text-sm h-9"
-                    />
-                  )}
                   {withAccountType && (
                     <>
                       <div className="flex flex-wrap gap-1.5">
