@@ -1,5 +1,5 @@
 import { SearchInput } from '@/components/SearchInput';
-import { MonthFilter } from '@/components/MonthFilter';
+import { HistoryPeriodNav } from '@/components/HistoryPeriodNav';
 import { CategoryFilter } from '@/components/CategoryFilter';
 import { AccountFilter } from '@/components/AccountFilter';
 import { HistoryList } from '@/components/HistoryList';
@@ -11,13 +11,17 @@ import { getAllCategories, getPaymentMethodNames } from '@/app/actions/manage';
 export default async function HistoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; month?: string; category?: string; account?: string; allTime?: string }>;
+  searchParams: Promise<{ q?: string; month?: string; year?: string; category?: string; account?: string; allTime?: string }>;
 }) {
   const params = await searchParams;
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
   const [data, categories, accountNames] = await Promise.all([
     listHistoryItems({
       query:      params.q,
       month:      params.month,
+      year:       params.year ? Number(params.year) : undefined,
       category:   params.category,
       account:    params.account,
       allTime:    params.allTime === 'true',
@@ -41,7 +45,7 @@ export default async function HistoryPage({
         <section className="pt-4 pb-6 space-y-4 d-col-nav d-sticky">
           <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint">History</p>
           <SearchInput placeholder="Search…" />
-          <MonthFilter />
+          <HistoryPeriodNav currentYear={currentYear} currentMonth={currentMonth} />
           <CategoryFilter categories={categories} />
           {accountNames.length > 0 && <AccountFilter accounts={accountNames} />}
         </section>
