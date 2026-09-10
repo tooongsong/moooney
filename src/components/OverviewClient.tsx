@@ -74,6 +74,30 @@ export function OverviewClient({ month, year, all }: OverviewClientProps) {
         ))}
       </div>
 
+      <section className="pb-6">
+        <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-3">
+          {data.label} SPENDING
+        </p>
+        <AnimatedAmount value={data.spend} />
+        <div className="flex items-center gap-4 mt-3 text-sm">
+          <span className="text-ink-faint">Income <span className="font-bold text-ink tabular-nums">{formatCurrency(data.income)}</span></span>
+          <span className="text-ink-faint">
+            Net <span className={`font-bold tabular-nums ${data.net >= 0 ? 'text-ink' : 'text-accent'}`}>
+              {data.net >= 0 ? '+' : '−'}{formatCurrency(Math.abs(data.net))}
+            </span>
+          </span>
+          {data.dailyAverage !== undefined && (
+            <span className="text-ink-faint">Daily avg <span className="font-bold text-ink tabular-nums">{formatCurrency(data.dailyAverage)}</span></span>
+          )}
+          {data.monthlyAverage !== undefined && (
+            <span className="text-ink-faint">Avg/month <span className="font-bold text-ink tabular-nums">{formatCurrency(data.monthlyAverage)}</span></span>
+          )}
+          {data.netWorth !== undefined && (
+            <span className="text-ink-faint">Net worth <span className="font-bold text-ink tabular-nums">{formatCurrency(data.netWorth)}</span></span>
+          )}
+        </div>
+      </section>
+
       <AnimatePresence mode="wait">
         <motion.div
           key={mode}
@@ -82,30 +106,6 @@ export function OverviewClient({ month, year, all }: OverviewClientProps) {
           exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.22, ease: 'easeOut' }}
         >
-          <section className="pb-6">
-            <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-3">
-              {data.label} SPENDING
-            </p>
-            <AnimatedAmount value={data.spend} />
-            <div className="flex items-center gap-4 mt-3 text-sm">
-              <span className="text-ink-faint">Income <span className="font-bold text-ink tabular-nums">{formatCurrency(data.income)}</span></span>
-              <span className="text-ink-faint">
-                Net <span className={`font-bold tabular-nums ${data.net >= 0 ? 'text-ink' : 'text-accent'}`}>
-                  {data.net >= 0 ? '+' : '−'}{formatCurrency(Math.abs(data.net))}
-                </span>
-              </span>
-              {data.dailyAverage !== undefined && (
-                <span className="text-ink-faint">Daily avg <span className="font-bold text-ink tabular-nums">{formatCurrency(data.dailyAverage)}</span></span>
-              )}
-              {data.monthlyAverage !== undefined && (
-                <span className="text-ink-faint">Avg/month <span className="font-bold text-ink tabular-nums">{formatCurrency(data.monthlyAverage)}</span></span>
-              )}
-              {data.netWorth !== undefined && (
-                <span className="text-ink-faint">Net worth <span className="font-bold text-ink tabular-nums">{formatCurrency(data.netWorth)}</span></span>
-              )}
-            </div>
-          </section>
-
           <section className="pb-8 border-b border-line">
             <TrendBars items={trendItems} labelEvery={labelEvery} />
           </section>

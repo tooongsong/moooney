@@ -48,6 +48,7 @@ async function getMonthOverview(userId: string, now: Date): Promise<OverviewData
   const monthEnd = endOfMonth(now);
   const rows = await db.query.transactions.findMany({
     where: and(eq(transactions.userId, userId), gte(transactions.date, monthStart), lte(transactions.date, monthEnd)),
+    columns: { type: true, amount: true, category: true, date: true },
   });
 
   const result = aggregateTransactions(toAggregateInput(rows));
@@ -83,6 +84,7 @@ async function getYearOverview(userId: string, now: Date): Promise<OverviewData>
   const yearEnd = endOfYear(now);
   const rows = await db.query.transactions.findMany({
     where: and(eq(transactions.userId, userId), gte(transactions.date, yearStart), lte(transactions.date, yearEnd)),
+    columns: { type: true, amount: true, category: true, date: true },
   });
 
   const result = aggregateTransactions(toAggregateInput(rows));
@@ -110,6 +112,7 @@ async function getYearOverview(userId: string, now: Date): Promise<OverviewData>
 async function getAllOverview(userId: string): Promise<OverviewData> {
   const rows = await db.query.transactions.findMany({
     where: eq(transactions.userId, userId),
+    columns: { type: true, amount: true, category: true, date: true },
   });
 
   const result = aggregateTransactions(toAggregateInput(rows));
