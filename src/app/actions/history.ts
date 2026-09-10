@@ -25,7 +25,7 @@ export async function listHistoryItems({
 }): Promise<HistoryItem[]> {
   const [txns, transferRows] = await Promise.all([
     listTransactions({ query, month, year, category, account, allTime, includeAdjustments }),
-    category ? Promise.resolve([]) : listTransfers({ query, month, account, allTime }),
+    category ? Promise.resolve([]) : listTransfers({ query, month, year, account, allTime }),
   ]);
 
   const merged: HistoryItem[] = [

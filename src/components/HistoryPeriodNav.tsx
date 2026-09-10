@@ -29,6 +29,7 @@ export function HistoryPeriodNav({ currentYear, currentMonth }: HistoryPeriodNav
     const params = new URLSearchParams(searchParams.toString());
     params.set('month', format(date, 'yyyy-MM'));
     params.delete('year'); // month is more specific than year; picking a month always clears any year filter
+    params.delete('allTime');
     startTransition(() => router.push(`?${params.toString()}`));
   }
 
@@ -36,6 +37,7 @@ export function HistoryPeriodNav({ currentYear, currentMonth }: HistoryPeriodNav
     const params = new URLSearchParams(searchParams.toString());
     params.set('year', String(year));
     params.delete('month'); // stay in year mode
+    params.delete('allTime');
     startTransition(() => router.push(`?${params.toString()}`));
   }
 

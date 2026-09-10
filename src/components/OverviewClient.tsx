@@ -104,11 +104,14 @@ export function OverviewClient({ data, period, currentYear, currentMonth }: Over
     period === 'month'
       ? (data.dailyTrend ?? []).map((d) => ({ key: String(d.day).padStart(2, '0'), value: d.spend }))
       : period === 'year'
-        ? (data.monthlyTrend ?? []).map((m) => ({
-            key: MONTH_NAMES[m.month - 1],
-            value: m.spend,
-            href: `/overview?period=month&month=${viewYear}-${String(m.month).padStart(2, '0')}`,
-          }))
+        ? (data.monthlyTrend ?? []).map((m) => {
+            const isFuture = viewYear > currentYear || (viewYear === currentYear && m.month > currentMonth);
+            return {
+              key: MONTH_NAMES[m.month - 1],
+              value: m.spend,
+              href: isFuture ? undefined : `/overview?period=month&month=${viewYear}-${String(m.month).padStart(2, '0')}`,
+            };
+          })
         : (data.yearlyTrend ?? []).map((y) => ({ key: String(y.year), value: y.spend }));
 
   const labelEvery = period === 'month' ? 5 : 1;

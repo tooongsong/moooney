@@ -2,7 +2,7 @@
 
 import { randomUUID } from 'crypto';
 import { and, asc, desc, eq, gte, isNull, like, lte, or } from 'drizzle-orm';
-import { startOfMonth, endOfMonth, parse } from 'date-fns';
+import { startOfMonth, endOfMonth, parse, startOfYear, endOfYear } from 'date-fns';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
@@ -135,17 +135,22 @@ export async function getTransfer(id: string) {
 }
 
 export async function listTransfers({
-  query, month, account, allTime,
-}: { query?: string; month?: string; account?: string; allTime?: boolean }) {
+  query, month, year, account, allTime,
+}: { query?: string; month?: string; year?: number; account?: string; allTime?: boolean }) {
   const user = await getUser();
 
   let dateFilter;
   if (!allTime) {
-    const parsed = month ? parse(month, 'yyyy-MM', new Date()) : new Date();
-    dateFilter = and(
-      gte(transfers.date, startOfMonth(parsed)),
-      lte(transfers.date, endOfMonth(parsed)),
-    );
+    if (month) {
+      const parsed = parse(month, 'yyyy-MM', new Date());
+      dateFilter = and(gte(transfers.date, startOfMonth(parsed)), lte(transfers.date, endOfMonth(parsed)));
+    } else if (year) {
+      const parsed = new Date(year, 0, 1);
+      dateFilter = and(gte(transfers.date, startOfYear(parsed)), lte(transfers.date, endOfYear(parsed)));
+    } else {
+      const parsed = new Date();
+      dateFilter = and(gte(transfers.date, startOfMonth(parsed)), lte(transfers.date, endOfMonth(parsed)));
+    }
   }
 
   return db.query.transfers.findMany({
