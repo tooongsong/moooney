@@ -25,7 +25,7 @@ export const transactions = pgTable('transactions', {
   userId:          uuid('user_id').notNull(),
   date:            timestamp('date').notNull(),
   amount:          numeric('amount', { precision: 12, scale: 2 }).notNull().$type<number>(),
-  type:            text('type', { enum: ['expense', 'income', 'refund'] }).notNull().default('expense'),
+  type:            text('type', { enum: ['expense', 'income', 'refund', 'balance_adjustment'] }).notNull().default('expense'),
   category:        text('category').notNull(),
   merchant:        text('merchant').notNull(),
   description:     text('description').notNull(),
