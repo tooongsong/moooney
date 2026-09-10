@@ -30,12 +30,14 @@ export function EditBalanceDialog({ accountId, currentBalance, isLiability }: Ed
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'input' | 'confirm'>('input');
-  const [value, setValue] = useState(() => String(Math.abs(currentBalance)));
+  const [value, setValue] = useState(() =>
+    (isLiability ? Math.abs(currentBalance) : currentBalance).toFixed(2)
+  );
   const [isSaving, setIsSaving] = useState(false);
 
   function reset() {
     setStep('input');
-    setValue(String(Math.abs(currentBalance)));
+    setValue((isLiability ? Math.abs(currentBalance) : currentBalance).toFixed(2));
     setIsSaving(false);
   }
 
@@ -96,7 +98,7 @@ export function EditBalanceDialog({ accountId, currentBalance, isLiability }: Ed
             </AlertDialogHeader>
             <Input
               value={value}
-              onChange={(e) => setValue(e.target.value.replace(/[^0-9.]/g, ''))}
+              onChange={(e) => setValue(e.target.value.replace(/[^0-9.-]/g, ''))}
               inputMode="decimal"
               autoFocus
               className="text-lg tabular-nums"
