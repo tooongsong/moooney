@@ -1,6 +1,6 @@
 'use server';
 
-import { and, asc, eq, gte, isNull, lte, or } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { startOfMonth, endOfMonth } from 'date-fns';
 import { randomUUID } from 'crypto';
 import { redirect } from 'next/navigation';
@@ -47,6 +47,61 @@ export interface AccountDetail extends AccountBalance {
   thisMonthOut: number;
 }
 
+/**
+ * Sums every account's transaction + transfer deltas directly in Postgres —
+ * matching the app's "prefer paymentMethodId, fall back to legacy name
+ * match" rule for both transactions and transfers (each side of a transfer
+ * checked independently) — instead of downloading every transaction/transfer
+ * row (with their receipt images, OCR line items, etc.) into the app just to
+ * sum them in JS. Only ever returns one small row per account: its id and
+ * signed delta.
+ */
+async function accountDeltas(userId: string): Promise<Map<string, number>> {
+  const rows = await db.execute<{ account_id: string; delta: string | number }>(sql`
+    SELECT a.id AS account_id, COALESCE(tx.delta, 0) + COALESCE(tr.delta, 0) AS delta
+    FROM ${paymentMethods} a
+    LEFT JOIN (
+      SELECT
+        COALESCE(t.payment_method_id, pm.id) AS account_id,
+        SUM(
+          CASE
+            WHEN t.type IN ('income', 'refund', ${BALANCE_ADJUSTMENT_TYPE}) THEN t.amount
+            WHEN t.type = 'expense' THEN -t.amount
+            ELSE 0
+          END
+        ) AS delta
+      FROM ${transactions} t
+      LEFT JOIN ${paymentMethods} pm
+        ON pm.user_id = t.user_id AND pm.name = t.payment_method AND t.payment_method_id IS NULL
+      WHERE t.user_id = ${userId}
+      GROUP BY COALESCE(t.payment_method_id, pm.id)
+    ) tx ON tx.account_id = a.id
+    LEFT JOIN (
+      SELECT account_id, SUM(delta) AS delta FROM (
+        SELECT COALESCE(tr.from_account_id, pf.id) AS account_id, -tr.amount AS delta
+        FROM ${transfers} tr
+        LEFT JOIN ${paymentMethods} pf
+          ON pf.user_id = tr.user_id AND pf.name = tr.from_account AND tr.from_account_id IS NULL
+        WHERE tr.user_id = ${userId}
+        UNION ALL
+        SELECT COALESCE(tr.to_account_id, pt.id) AS account_id, tr.amount AS delta
+        FROM ${transfers} tr
+        LEFT JOIN ${paymentMethods} pt
+          ON pt.user_id = tr.user_id AND pt.name = tr.to_account AND tr.to_account_id IS NULL
+        WHERE tr.user_id = ${userId}
+      ) combined
+      GROUP BY account_id
+    ) tr ON tr.account_id = a.id
+    WHERE a.user_id = ${userId}
+  `);
+
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    map.set(row.account_id, toNum(row.delta, 'account delta'));
+  }
+  return map;
+}
+
 export async function getAccountBalances(): Promise<AccountBalance[]> {
   const user = await getUser();
 
@@ -59,39 +114,11 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
   const active = accounts.filter((a) => !a.archivedAt);
   if (active.length === 0) return [];
 
-  const activeIds = new Set(active.map((a) => a.id));
-
-  const [txRows, trRows] = await Promise.all([
-    db.query.transactions.findMany({ where: eq(transactions.userId, user.id) }),
-    db.query.transfers.findMany({ where: eq(transfers.userId, user.id) }),
-  ]);
+  const deltas = await accountDeltas(user.id);
 
   return active.map((account) => {
     const sb = toNum(account.startingBalance, 'startingBalance');
-    let delta = 0;
-
-    for (const t of txRows) {
-      const matches = t.paymentMethodId
-        ? t.paymentMethodId === account.id
-        : t.paymentMethod === account.name;
-      if (!matches) continue;
-      const amt = toNum(t.amount, 'transaction.amount');
-      if (t.type === 'income' || t.type === 'refund') delta += amt;
-      else if (t.type === 'expense') delta -= amt;
-      else if (t.type === BALANCE_ADJUSTMENT_TYPE) delta += amt; // amt already signed
-    }
-
-    for (const tr of trRows) {
-      const fromMatches = tr.fromAccountId
-        ? tr.fromAccountId === account.id
-        : tr.fromAccount === account.name;
-      const toMatches = tr.toAccountId
-        ? tr.toAccountId === account.id
-        : tr.toAccount === account.name;
-      const amt = toNum(tr.amount, 'transfer.amount');
-      if (fromMatches) delta -= amt;
-      if (toMatches) delta += amt;
-    }
+    const delta = deltas.get(account.id) ?? 0;
 
     return {
       id:              account.id,
@@ -107,6 +134,30 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
   });
 }
 
+/** This account's income/refund total and expense total for one month,
+ * computed in Postgres — same paymentMethodId-then-name matching rule as
+ * accountDeltas(), no rows downloaded. */
+async function accountMonthFlow(
+  userId: string,
+  account: { id: string; name: string },
+  monthStart: Date,
+  monthEnd: Date,
+): Promise<{ thisMonthIn: number; thisMonthOut: number }> {
+  const rows = await db.execute<{ month_in: string | number | null; month_out: string | number | null }>(sql`
+    SELECT
+      SUM(CASE WHEN type IN ('income', 'refund') THEN amount ELSE 0 END) AS month_in,
+      SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS month_out
+    FROM ${transactions}
+    WHERE user_id = ${userId}
+      AND (payment_method_id = ${account.id} OR (payment_method_id IS NULL AND payment_method = ${account.name}))
+      AND date >= ${monthStart} AND date <= ${monthEnd}
+  `);
+  return {
+    thisMonthIn:  toNum(rows[0]?.month_in ?? 0, 'thisMonthIn'),
+    thisMonthOut: toNum(rows[0]?.month_out ?? 0, 'thisMonthOut'),
+  };
+}
+
 export async function getAccountDetail(id: string): Promise<AccountDetail | null> {
   const user = await getUser();
   const account = await db.query.paymentMethods.findFirst({
@@ -118,51 +169,18 @@ export async function getAccountDetail(id: string): Promise<AccountDetail | null
   const monthStart = startOfMonth(now);
   const monthEnd   = endOfMonth(now);
 
-  // Match by ID; fall back to name for any un-backfilled legacy rows
-  const txFilter = or(
-    eq(transactions.paymentMethodId, account.id),
-    and(isNull(transactions.paymentMethodId), eq(transactions.paymentMethod, account.name)),
-  );
-  const trFilter = or(
-    eq(transfers.fromAccountId, account.id),
-    eq(transfers.toAccountId,   account.id),
-    and(isNull(transfers.fromAccountId), eq(transfers.fromAccount, account.name)),
-    and(isNull(transfers.toAccountId),   eq(transfers.toAccount,   account.name)),
-  );
-
-  const [allTxns, allTr, monthTxns] = await Promise.all([
-    db.query.transactions.findMany({ where: and(eq(transactions.userId, user.id), txFilter) }),
-    db.query.transfers.findMany({ where: and(eq(transfers.userId, user.id), trFilter) }),
-    db.query.transactions.findMany({
-      where: and(
-        eq(transactions.userId, user.id),
-        txFilter,
-        gte(transactions.date, monthStart),
-        lte(transactions.date, monthEnd),
-      ),
-    }),
+  // Reuses the same corrected all-account delta computation getAccountBalances
+  // uses, rather than a second hand-written copy of the matching rule — the
+  // old per-account version here compared a legacy transfer's account NAME
+  // against this account's ID (never its name) in the no-ID fallback case,
+  // silently excluding un-backfilled legacy transfers from the balance.
+  const [deltas, { thisMonthIn, thisMonthOut }] = await Promise.all([
+    accountDeltas(user.id),
+    accountMonthFlow(user.id, account, monthStart, monthEnd),
   ]);
 
   const sb = toNum(account.startingBalance, 'startingBalance');
-  let delta = 0;
-  for (const t of allTxns) {
-    const amt = toNum(t.amount, 'transaction.amount');
-    if (t.type === 'income' || t.type === 'refund') delta += amt;
-    else if (t.type === 'expense') delta -= amt;
-    else if (t.type === BALANCE_ADJUSTMENT_TYPE) delta += amt; // amt already signed
-  }
-  for (const tr of allTr) {
-    const amt = toNum(tr.amount, 'transfer.amount');
-    if ((tr.fromAccountId ?? tr.fromAccount) === (account.id ?? account.name)) delta -= amt;
-    if ((tr.toAccountId   ?? tr.toAccount)   === (account.id ?? account.name)) delta += amt;
-  }
-
-  let thisMonthIn = 0, thisMonthOut = 0;
-  for (const t of monthTxns) {
-    const amt = toNum(t.amount, 'transaction.amount');
-    if (t.type === 'income' || t.type === 'refund') thisMonthIn  += amt;
-    else if (t.type === 'expense')                   thisMonthOut += amt;
-  }
+  const delta = deltas.get(account.id) ?? 0;
 
   return {
     id:              account.id,

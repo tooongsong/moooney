@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight, Settings2 } from 'lucide-react';
 import { getHomeData } from '@/app/actions/transactions';
-import { getAccountBalances } from '@/app/actions/accounts';
 import { TransactionRow } from '@/components/TransactionRow';
 import { CategoryBreakdown } from '@/components/CategoryBreakdown';
 import { BottomNav } from '@/components/BottomNav';
@@ -16,10 +15,7 @@ function splitCurrency(amount: number) {
 }
 
 export default async function HomePage() {
-  const [{ monthSpend, todaySpend, monthIncome, monthBalance, categoryData, recent }] = await Promise.all([
-    getHomeData(),
-    getAccountBalances(),
-  ]);
+  const { monthSpend, todaySpend, monthIncome, monthBalance, categoryData, recent } = await getHomeData();
 
   const balanceSplit = splitCurrency(monthBalance);
   const monthShort = new Intl.DateTimeFormat('en-US', { month: 'short' })
