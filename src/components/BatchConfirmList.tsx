@@ -49,12 +49,11 @@ const TYPE_OPTIONS: { value: TransactionType; label: string }[] = [
 interface BatchConfirmListProps {
   drafts: TransactionDraft[];
   categories: string[];
-  receiptImage?: string | null;
   onSave: (inputs: SaveTransactionInput[]) => Promise<void>;
   onCancel: () => void;
 }
 
-export function BatchConfirmList({ drafts, categories, receiptImage, onSave, onCancel }: BatchConfirmListProps) {
+export function BatchConfirmList({ drafts, categories, onSave, onCancel }: BatchConfirmListProps) {
   const [rows, setRows] = useState<Row[]>(() => drafts.map(draftToRow));
   const [expanded, setExpanded] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -89,7 +88,6 @@ export function BatchConfirmList({ drafts, categories, receiptImage, onSave, onC
           description: row.description.trim() || row.merchant.trim(),
           paymentMethod: draft.paymentMethod || null,
           items: draft.items || null,
-          receiptImage: receiptImage || null,
           needsReview: false,
         }))
       );

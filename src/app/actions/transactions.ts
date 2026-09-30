@@ -181,7 +181,6 @@ export interface SaveTransactionInput {
   notes?: string | null;
   items?: { name: string; price: number | null }[] | null;
   rawInput?: string | null;
-  receiptImage?: string | null;
   needsReview?: boolean;
 }
 
@@ -203,7 +202,9 @@ export async function saveTransaction(input: SaveTransactionInput) {
       paymentMethod:   input.paymentMethod || null,
       paymentMethodId,
       notes:           input.notes || null,
-      receiptUrl:      input.receiptImage || null,
+      // The receipt is sent to the model for extraction and then dropped. Storing the
+      // base64 image put ~0.8 MB on an average row and dominated every query's payload.
+      receiptUrl:      null,
       items:           input.items || null,
       rawInput:        input.rawInput || null,
       needsReview:     input.needsReview || false,
@@ -238,7 +239,9 @@ export async function saveTransactions(inputs: SaveTransactionInput[]) {
       paymentMethod:   input.paymentMethod || null,
       paymentMethodId: input.paymentMethod ? (idMap.get(input.paymentMethod) ?? null) : null,
       notes:           input.notes || null,
-      receiptUrl:      input.receiptImage || null,
+      // The receipt is sent to the model for extraction and then dropped. Storing the
+      // base64 image put ~0.8 MB on an average row and dominated every query's payload.
+      receiptUrl:      null,
       items:           input.items || null,
       rawInput:        input.rawInput || null,
       needsReview:     input.needsReview || false,

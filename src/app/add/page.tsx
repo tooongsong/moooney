@@ -207,7 +207,6 @@ export default function AddPage() {
           <BatchConfirmList
             drafts={drafts}
             categories={categories}
-            receiptImage={drafts[0]?.receiptImage}
             onSave={handleBatchSave}
             onCancel={reset}
           />

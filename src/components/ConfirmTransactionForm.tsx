@@ -107,7 +107,6 @@ export function ConfirmTransactionForm({
         paymentMethod: values.paymentMethod.trim() || null,
         notes: values.notes.trim() || null,
         items: values.items || null,
-        receiptImage: receiptImage || null,
         needsReview: false,
       });
     } finally {

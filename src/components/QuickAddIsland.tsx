@@ -300,7 +300,6 @@ export function QuickAddIsland() {
       paymentMethod: draft.paymentMethod || null,
       notes:         null,
       items:         draft.items || null,
-      receiptImage:  draft.receiptImage || null,
       needsReview:   draft.needsReview || false,
     });
     if (res.success) {
