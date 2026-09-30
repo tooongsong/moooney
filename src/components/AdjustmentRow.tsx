@@ -1,7 +1,7 @@
 import { formatCurrency, formatDate } from '@/lib/utils';
-import type { Transaction } from '@/db/schema';
+import type { TransactionListRow } from '@/app/actions/transactions';
 
-export function AdjustmentRow({ transaction }: { transaction: Transaction }) {
+export function AdjustmentRow({ transaction }: { transaction: TransactionListRow }) {
   const amount = Number(transaction.amount);
   const sign = amount >= 0 ? '+' : '';
 

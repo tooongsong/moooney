@@ -1,10 +1,10 @@
 'use server';
 
-import type { Transaction, Transfer } from '@/db/schema';
-import { listTransactions } from './transactions';
+import type { Transfer } from '@/db/schema';
+import { listTransactions, type TransactionListRow } from './transactions';
 import { listTransfers } from './transfers';
 
-export type HistoryItem = ({ kind: 'transaction' } & Transaction) | ({ kind: 'transfer' } & Transfer);
+export type HistoryItem = ({ kind: 'transaction' } & TransactionListRow) | ({ kind: 'transfer' } & Transfer);
 
 export async function listHistoryItems({
   query,

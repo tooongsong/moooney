@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import type { Transaction } from '@/db/schema';
+import type { TransactionListRow } from '@/app/actions/transactions';
 
 function sign(type: Transaction['type']) {
   return type === 'expense' ? '−' : '+';
 }
 
-export function TransactionRow({ transaction }: { transaction: Transaction }) {
+export function TransactionRow({ transaction }: { transaction: TransactionListRow }) {
   return (
     <Link href={`/history/${transaction.id}`}>
       <div className="flex items-center justify-between py-4 border-b border-line last:border-0 -mx-6 px-6 active:bg-sand/50 transition-colors">

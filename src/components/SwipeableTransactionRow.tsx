@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { deleteTransaction } from '@/app/actions/transactions';
 import type { Transaction } from '@/db/schema';
+import type { TransactionListRow } from '@/app/actions/transactions';
 
 function sign(type: Transaction['type']) {
   return type === 'expense' ? '−' : '+';
@@ -17,7 +18,7 @@ const OPEN_THRESHOLD = 40;
 const TAP_THRESHOLD = 6;
 
 interface SwipeableTransactionRowProps {
-  transaction: Transaction;
+  transaction: TransactionListRow;
   onDeleted: (id: string) => void;
 }
 

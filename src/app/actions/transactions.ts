@@ -6,7 +6,7 @@ import { startOfMonth, endOfMonth, startOfDay, endOfDay, parse, startOfYear, end
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { paymentMethods, transactions } from '@/db/schema';
+import { paymentMethods, transactions, type Transaction } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
 
 async function getUser() {
@@ -305,6 +305,16 @@ export async function getTransaction(id: string) {
   });
 }
 
+// Columns every list row actually renders. Deliberately excludes items (jsonb),
+// rawInput and receiptUrl — only the single-transaction edit view reads those, and
+// pulling them on unbounded list queries is what blew the egress budget.
+const LIST_COLUMNS = {
+  id: true, date: true, createdAt: true, amount: true, type: true,
+  category: true, merchant: true, paymentMethod: true, needsReview: true,
+} as const;
+
+export type TransactionListRow = Pick<Transaction, keyof typeof LIST_COLUMNS>;
+
 export async function getHomeData() {
   const user = await getUser();
   const now = new Date();
@@ -316,11 +326,13 @@ export async function getHomeData() {
   const [monthTxns, recent] = await Promise.all([
     db.query.transactions.findMany({
       where: and(eq(transactions.userId, user.id), gte(transactions.date, monthStart), lte(transactions.date, monthEnd)),
+      columns: { type: true, amount: true, category: true, date: true },
     }),
     db.query.transactions.findMany({
       where: and(eq(transactions.userId, user.id), ne(transactions.type, BALANCE_ADJUSTMENT_TYPE)),
       orderBy: [desc(transactions.date), desc(transactions.createdAt)],
       limit: 5,
+      columns: LIST_COLUMNS,
     }),
   ]);
 
@@ -391,5 +403,6 @@ export async function listTransactions({
       includeAdjustments ? undefined : ne(transactions.type, BALANCE_ADJUSTMENT_TYPE),
     ),
     orderBy: [desc(transactions.date), desc(transactions.createdAt)],
+    columns: LIST_COLUMNS,
   });
 }

@@ -83,6 +83,10 @@ export async function exportTransactionsCSV(): Promise<string> {
   const rows = await db.query.transactions.findMany({
     where: eq(transactions.userId, user.id),
     orderBy: [desc(transactions.date)],
+    columns: {
+      date: true, type: true, amount: true, category: true,
+      merchant: true, description: true, paymentMethod: true, notes: true,
+    },
   });
 
   function q(v: string | null | undefined): string {
@@ -109,6 +113,10 @@ export async function exportTransactionsJSON(): Promise<string> {
   const rows = await db.query.transactions.findMany({
     where: eq(transactions.userId, user.id),
     orderBy: [desc(transactions.date)],
+    columns: {
+      date: true, type: true, amount: true, category: true,
+      merchant: true, description: true, paymentMethod: true, notes: true,
+    },
   });
 
   const out = rows.map((r) => ({
