@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { animate, motion, useMotionValue, useTransform } from 'motion/react';
 import { toDateInputValue } from '@/lib/utils';
 import { extractDraft, saveTransaction, type TransactionDraft } from '@/app/actions/transactions';
+import { imageToBase64 } from '@/lib/image';
 import { DEFAULT_CATEGORY } from '@/lib/categories';
 import type { TransactionType } from '@/lib/categories';
 import { getAllCategories, addCustomCategory, getPaymentMethodNames } from '@/app/actions/manage';
@@ -48,15 +49,6 @@ function morphRad(q: number, targetH: number, dStart: number, dEnd: number): num
   const curH  = lerp(PILL_H, targetH, ht);
   const blend = easeOut3(clamp01((q - 0.20) / 0.80));     // blend capsule→panel
   return lerp(curH / 2 + dStart, 22 + dEnd, blend);
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 export function QuickAddIsland() {
@@ -272,7 +264,7 @@ export function QuickAddIsland() {
   async function extractImage(file: File) {
     setState('parsing');
     try {
-      const b64 = await fileToBase64(file);
+      const b64 = await imageToBase64(file);
       const res  = await extractDraft({ imageBase64: b64 });
       if (res.success && res.drafts.length > 0) {
         setDraft({ ...res.drafts[0], receiptImage: b64 });

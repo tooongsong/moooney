@@ -18,6 +18,7 @@ import { HeaderIconButton } from '@/components/HeaderIconButton';
 import { getAllCategories, getPaymentMethodNames } from '@/app/actions/manage';
 import { CATEGORIES, DEFAULT_CATEGORY } from '@/lib/categories';
 import { toDateInputValue } from '@/lib/utils';
+import { imageToBase64 } from '@/lib/image';
 
 const EXAMPLES = ['Target $43.28 home supplies', 'Lunch at Din Tai Fung $36.50', 'Costco $68.20 groceries'];
 const PENDING_DRAFTS_KEY = 'moooney_pending_drafts';
@@ -129,13 +130,8 @@ export default function AddPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const imageBase64 = reader.result as string;
-      await runExtraction({ imageBase64 }, 'Scanning…');
-    };
-    reader.readAsDataURL(file);
     e.target.value = '';
+    await runExtraction({ imageBase64: await imageToBase64(file) }, 'Scanning…');
   }
 
   async function handleSave(input: SaveTransactionInput) {
