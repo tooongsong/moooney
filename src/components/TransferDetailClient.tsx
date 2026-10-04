@@ -10,9 +10,11 @@ import type { Transfer } from '@/db/schema';
 interface TransferDetailClientProps {
   transfer: Transfer;
   accounts: AccountOption[];
+  /** Where the list that opened this lives — validated by the page. */
+  backTo: string;
 }
 
-export function TransferDetailClient({ transfer, accounts }: TransferDetailClientProps) {
+export function TransferDetailClient({ transfer, accounts, backTo }: TransferDetailClientProps) {
   const router = useRouter();
 
   const initial: TransferFormValues = {
@@ -27,7 +29,7 @@ export function TransferDetailClient({ transfer, accounts }: TransferDetailClien
     const result = await updateTransfer(transfer.id, input);
     if (result.success) {
       toast.success('Saved');
-      router.push('/history');
+      router.push(backTo);
     } else {
       toast.error(result.error || 'Could not save');
     }
@@ -39,7 +41,7 @@ export function TransferDetailClient({ transfer, accounts }: TransferDetailClien
       accounts={accounts}
       saveLabel="Save changes"
       onSave={handleSave}
-      onCancel={() => router.push('/history')}
+      onCancel={() => router.push(backTo)}
     />
   );
 }

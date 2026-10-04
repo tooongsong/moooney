@@ -12,9 +12,11 @@ interface EditTransactionClientProps {
   transaction: Transaction;
   categories: string[];
   paymentMethods: string[];
+  /** Where the list that opened this lives — validated by the page. */
+  backTo: string;
 }
 
-export function EditTransactionClient({ transaction, categories, paymentMethods }: EditTransactionClientProps) {
+export function EditTransactionClient({ transaction, categories, paymentMethods, backTo }: EditTransactionClientProps) {
   const router = useRouter();
 
   const initial: ConfirmFormValues = {
@@ -33,7 +35,7 @@ export function EditTransactionClient({ transaction, categories, paymentMethods 
     const result = await updateTransaction(transaction.id, input);
     if (result.success) {
       toast.success('Updated');
-      router.push('/history');
+      router.push(backTo);
     } else {
       toast.error(result.error);
     }
@@ -47,7 +49,7 @@ export function EditTransactionClient({ transaction, categories, paymentMethods 
       receiptImage={transaction.receiptUrl}
       saveLabel="Save changes"
       onSave={handleSave}
-      onCancel={() => router.push('/history')}
+      onCancel={() => router.push(backTo)}
     />
   );
 }

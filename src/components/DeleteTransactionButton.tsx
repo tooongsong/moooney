@@ -18,7 +18,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 
-export function DeleteTransactionButton({ id }: { id: string }) {
+export function DeleteTransactionButton({ id, backTo }: { id: string; backTo: string }) {
   const router = useRouter();
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -27,7 +27,7 @@ export function DeleteTransactionButton({ id }: { id: string }) {
     const result = await deleteTransaction(id);
     if (result.success) {
       toast.success('Transaction deleted');
-      router.push('/history');
+      router.push(backTo);
     } else {
       toast.error(result.error || 'Failed to delete');
       setIsDeleting(false);

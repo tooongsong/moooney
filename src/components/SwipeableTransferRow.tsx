@@ -1,10 +1,11 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRightLeft, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCurrency, formatSignedCurrency, formatDate } from '@/lib/utils';
+import { withBackTarget } from '@/lib/backTarget';
 import { deleteTransfer } from '@/app/actions/transfers';
 import type { Transfer } from '@/db/schema';
 
@@ -20,8 +21,17 @@ interface SwipeableTransferRowProps {
   balanceAfter?: number;
 }
 
+/** The location to come back to: this page, with whatever filters are on it. */
+function useHere(): string {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const qs = searchParams.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
 export function SwipeableTransferRow({ transfer, onDeleted, balanceAfter }: SwipeableTransferRowProps) {
   const router = useRouter();
+  const here = useHere();
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -53,7 +63,7 @@ export function SwipeableTransferRow({ transfer, onDeleted, balanceAfter }: Swip
   function handleTap() {
     if (moved.current) return;
     if (offset !== 0) { setOffset(0); return; }
-    router.push(`/transfer/${transfer.id}`);
+    router.push(withBackTarget(`/transfer/${transfer.id}`, here));
   }
 
   async function handleDelete() {

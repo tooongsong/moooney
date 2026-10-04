@@ -1,13 +1,22 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatCurrency, formatSignedCurrency, formatDate } from '@/lib/utils';
 import { deleteTransaction } from '@/app/actions/transactions';
+import { withBackTarget } from '@/lib/backTarget';
 import type { Transaction } from '@/db/schema';
 import type { TransactionListRow } from '@/app/actions/transactions';
+
+/** The location to come back to: this page, with whatever filters are on it. */
+function useHere(): string {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const qs = searchParams.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
 
 function sign(type: Transaction['type']) {
   return type === 'expense' ? '−' : '+';
@@ -27,6 +36,7 @@ interface SwipeableTransactionRowProps {
 
 export function SwipeableTransactionRow({ transaction, onDeleted, balanceAfter }: SwipeableTransactionRowProps) {
   const router = useRouter();
+  const here = useHere();
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -58,7 +68,7 @@ export function SwipeableTransactionRow({ transaction, onDeleted, balanceAfter }
   function handleTap() {
     if (moved.current) return;
     if (offset !== 0) { setOffset(0); return; }
-    router.push(`/history/${transaction.id}`);
+    router.push(withBackTarget(`/history/${transaction.id}`, here));
   }
 
   async function handleDelete() {

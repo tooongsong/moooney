@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { TrendBars, type TrendBarItem } from '@/components/TrendBars';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { withBackTarget } from '@/lib/backTarget';
 import type { getCategoryDetail } from '@/app/actions/overview';
 
 type Detail = Awaited<ReturnType<typeof getCategoryDetail>>;
@@ -14,7 +16,16 @@ type Detail = Awaited<ReturnType<typeof getCategoryDetail>>;
  * The share is the number that says whether a category is genuinely large or
  * merely first — a circle can only show the ordering.
  */
+/** The location to come back to: this page, with whatever filters are on it. */
+function useHere(): string {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const qs = searchParams.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
 export function CategoryDetailPanel({ detail }: { detail: Detail }) {
+  const here = useHere();
   const items: TrendBarItem[] = detail.daily.map((d) => ({ key: String(d.day), value: d.spend }));
   const labelEvery = detail.daily.length > 20 ? 7 : 1;
 
@@ -46,7 +57,7 @@ export function CategoryDetailPanel({ detail }: { detail: Detail }) {
           detail.transactions.map((t) => (
             <Link
               key={t.id}
-              href={`/history/${t.id}`}
+              href={withBackTarget(`/history/${t.id}`, here)}
               className="flex items-baseline justify-between gap-4 py-3 border-b border-line last:border-0 hover:bg-sand/40 transition-colors"
             >
               <span className="min-w-0">
