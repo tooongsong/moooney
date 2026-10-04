@@ -1,54 +1,58 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 
-export function AccountFilter({ accounts }: { accounts: string[] }) {
+export function AccountFilter({ accounts }: { accounts: { name: string; value: number }[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const current = searchParams.get('account') || 'all';
+  const current = searchParams.get('account');
 
-  function select(value: string) {
+  function select(value: string | null) {
     const params = new URLSearchParams(searchParams.toString());
-    if (value === 'all') {
-      params.delete('account');
-    } else {
-      params.set('account', value);
-    }
+    if (value) params.set('account', value);
+    else params.delete('account');
     router.push(`?${params.toString()}`);
   }
 
-  return (
-    <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-6 px-6">
-      <Pill active={current === 'all'} onClick={() => select('all')}>All accounts</Pill>
-      {accounts.map((a) => (
-        <Pill key={a} active={current === a} onClick={() => select(a)}>
-          {a}
-        </Pill>
-      ))}
-    </div>
-  );
-}
+  if (accounts.length === 0) return null;
 
-function Pill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+  // Bar length is read directly, so it scales linearly — the square-root
+  // correction circles need would understate the differences here.
+  const max = Math.max(...accounts.map((a) => a.value), 1);
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'shrink-0 h-8 px-4 rounded-full text-[10px] font-bold uppercase tracking-widest transition-colors',
-        active ? 'bg-ink text-paper' : 'bg-sand text-ink-soft hover:bg-sand/70'
-      )}
-    >
-      {children}
-    </button>
+    <div className="flex flex-col gap-1.5">
+      {accounts.map((a) => {
+        const selected = current === a.name;
+        return (
+          <button
+            key={a.name}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => select(selected ? null : a.name)}
+            className="group flex items-center gap-2 text-left"
+          >
+            <span
+              className="h-4 rounded-full shrink-0 transition-colors"
+              style={{
+                width: `${Math.max(8, (a.value / max) * 72)}px`,
+                background: selected ? 'var(--accent)' : 'var(--ink)',
+              }}
+            />
+            <span
+              className={`text-[10px] font-bold uppercase tracking-widest truncate ${
+                selected ? 'text-accent' : 'text-ink-soft group-hover:text-ink'
+              }`}
+            >
+              {a.name}
+            </span>
+            <span className="text-[10px] font-semibold tabular-nums text-ink-faint shrink-0 ml-auto">
+              {formatCurrency(a.value)}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
