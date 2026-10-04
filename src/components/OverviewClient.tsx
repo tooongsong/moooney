@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useTransition } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { subMonths, addMonths } from 'date-fns';
 import { animate, AnimatePresence, motion } from 'motion/react';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
@@ -11,7 +11,10 @@ import { CategoryBlocks } from '@/components/CategoryBlocks';
 import { PeriodNavigator } from '@/components/PeriodNavigator';
 import { MonthPicker } from '@/components/MonthPicker';
 import { YearPicker } from '@/components/YearPicker';
-import { getAvailableYears, type OverviewData, type OverviewPeriod } from '@/app/actions/overview';
+import { getAvailableYears, type OverviewData, type OverviewPeriod,
+         type getTrailingTrend, type getCategoryDetail } from '@/app/actions/overview';
+import { TrendPanel } from '@/components/TrendPanel';
+import { CategoryDetailPanel } from '@/components/CategoryDetailPanel';
 import { formatCurrency } from '@/lib/utils';
 
 interface OverviewClientProps {
@@ -19,6 +22,8 @@ interface OverviewClientProps {
   period: OverviewPeriod;
   currentYear: number;
   currentMonth: number;
+  trend: Awaited<ReturnType<typeof getTrailingTrend>>;
+  detail: Awaited<ReturnType<typeof getCategoryDetail>> | null;
 }
 
 const MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -51,8 +56,9 @@ function parseMonthKey(monthKey: string): { year: number; month: number } {
   return { year: y, month: m };
 }
 
-export function OverviewClient({ data, period, currentYear, currentMonth }: OverviewClientProps) {
+export function OverviewClient({ data, period, currentYear, currentMonth, trend, detail }: OverviewClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
   const [monthPickerOpen, setMonthPickerOpen] = useState(false);
   const [yearPickerOpen, setYearPickerOpen] = useState(false);
@@ -65,6 +71,13 @@ export function OverviewClient({ data, period, currentYear, currentMonth }: Over
 
   function navigate(params: Record<string, string>) {
     startTransition(() => router.push(`/overview?${new URLSearchParams(params).toString()}`));
+  }
+
+  function selectCategory(name: string | null) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (name) params.set('category', name);
+    else params.delete('category');
+    startTransition(() => router.push(`/overview?${params.toString()}`));
   }
 
   function goToMode(nextMode: OverviewPeriod) {
@@ -192,29 +205,45 @@ export function OverviewClient({ data, period, currentYear, currentMonth }: Over
         </div>
       </section>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={contentKey}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.22, ease: 'easeOut' }}
-        >
-          <section className="pb-8 border-b border-line">
-            <TrendBars items={trendItems} labelEvery={labelEvery} />
-          </section>
+      <div className="d-split">
+        <div className="d-split-main">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={contentKey}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+            >
+              {/* The phone's own trend strip. On desktop the panel carries a
+                  longer one, so this would be the same data twice. */}
+              <section className="pb-8 border-b border-line lg:hidden">
+                <TrendBars items={trendItems} labelEvery={labelEvery} />
+              </section>
 
-          <section className="pt-6">
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-5">Top Categories</h2>
-            <CategoryBlocks data={data.categoryTotals} />
-            {data.categoryTotals.length > 0 && (
-              <Link href={viewAllHref} className="mt-4 inline-flex items-center gap-0.5 text-xs text-ink-faint hover:text-ink transition-colors">
-                View all →
-              </Link>
-            )}
-          </section>
-        </motion.div>
-      </AnimatePresence>
+              <section className="pt-6 lg:pt-0">
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-5">Top Categories</h2>
+                <CategoryBlocks
+                  data={data.categoryTotals}
+                  maxSize={168}
+                  selected={detail?.category ?? null}
+                  onSelect={selectCategory}
+                  labelOutside
+                />
+                {data.categoryTotals.length > 0 && (
+                  <Link href={viewAllHref} className="mt-4 inline-flex items-center gap-0.5 text-xs text-ink-faint hover:text-ink transition-colors">
+                    View all →
+                  </Link>
+                )}
+              </section>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        <div className="d-split-panel d-panel-rule d-desktop-only">
+          {detail ? <CategoryDetailPanel detail={detail} /> : <TrendPanel {...trend} />}
+        </div>
+      </div>
 
       {period === 'month' && (
         <MonthPicker

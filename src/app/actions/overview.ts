@@ -1,12 +1,13 @@
 'use server';
 
-import { and, eq, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
 import { transactions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
 import { monthRange, yearRange, daysInMonth, monthOf, dayOf, yearOf, nowPartsIn, safeTimeZone } from '@/lib/dates';
-import { aggregateTransactions, type AggregateInput } from '@/lib/spendingAggregate';
+import { aggregateTransactions, trailingMonths, categoryBreakdown, type AggregateInput, type MonthBucket } from '@/lib/spendingAggregate';
+import { BALANCE_ADJUSTMENT_TYPE } from '@/lib/categories';
 import { getAccountBalances } from './accounts';
 import { computeNetWorth } from '@/lib/accountTypes';
 
@@ -211,4 +212,120 @@ export async function getAvailableYears(): Promise<number[]> {
   });
   const years = new Set(rows.map((r) => yearOf(r.date)));
   return Array.from(years).sort((a, b) => a - b);
+}
+
+/**
+ * The trailing-N-month trend behind the overview's default right panel. The
+ * window ends at the user's current month, not the server's — on a UTC host
+ * the last few hours of a Pacific month would otherwise land in the next one.
+ */
+export async function getTrailingTrend(
+  months = 12,
+): Promise<{ buckets: MonthBucket[]; average: number; peak: number }> {
+  const user = await getUser();
+  const tz = safeTimeZone(user.user_metadata?.timezone as string | undefined);
+  const { year, month } = nowPartsIn(tz);
+
+  const first = trailingMonths([], year, month, months)[0];
+  const [windowStart] = monthRange(first.year, first.month);
+  const [, windowEnd] = monthRange(year, month);
+
+  const rows = await db.query.transactions.findMany({
+    where: and(
+      eq(transactions.userId, user.id),
+      gte(transactions.date, windowStart),
+      lte(transactions.date, windowEnd),
+    ),
+    columns: { type: true, amount: true, category: true, date: true },
+  });
+
+  const buckets = trailingMonths(
+    rows.map((r) => ({ type: r.type, amount: Number(r.amount) || 0, category: r.category, date: r.date })),
+    year,
+    month,
+    months,
+  );
+
+  const spends = buckets.map((b) => b.spend);
+  return {
+    buckets,
+    average: spends.reduce((a, b) => a + b, 0) / Math.max(1, spends.length),
+    peak: Math.max(0, ...spends),
+  };
+}
+
+/** Enough entries to understand a category without shipping a whole year of rows. */
+const DETAIL_TRANSACTION_LIMIT = 50;
+
+/**
+ * One category's slice of the current period, for the overview's selected
+ * right panel: total, share, a per-day series and the entries behind it.
+ */
+export async function getCategoryDetail(
+  category: string,
+  period: OverviewPeriod,
+  anchorParams: { month?: string; year?: string } = {},
+) {
+  const user = await getUser();
+  const tz = safeTimeZone(user.user_metadata?.timezone as string | undefined);
+  const now = nowPartsIn(tz);
+
+  let start: string;
+  let end: string;
+  let days: number;
+
+  if (period === 'year') {
+    const y = Number(anchorParams.year);
+    const year = Number.isInteger(y) && y <= now.year ? y : now.year;
+    [start, end] = yearRange(year);
+    days = 12; // year mode buckets by month, not day
+  } else if (period === 'all') {
+    start = '0001-01-01';
+    end = '9999-12-31';
+    days = 12;
+  } else {
+    const match = /^(\d{4})-(\d{2})$/.exec(anchorParams.month ?? '');
+    const year = match ? Number(match[1]) : now.year;
+    const month = match ? Number(match[2]) : now.month;
+    [start, end] = monthRange(year, month);
+    days = daysInMonth(year, month);
+  }
+
+  const rows = await db.query.transactions.findMany({
+    where: and(
+      eq(transactions.userId, user.id),
+      gte(transactions.date, start),
+      lte(transactions.date, end),
+    ),
+    columns: {
+      id: true, type: true, amount: true, category: true,
+      date: true, merchant: true, paymentMethod: true,
+    },
+    orderBy: [desc(transactions.date)],
+  });
+
+  const breakdown = categoryBreakdown(
+    rows.map((r) => ({ type: r.type, amount: Number(r.amount) || 0, category: r.category, date: r.date })),
+    category,
+    days,
+    start,
+  );
+
+  return {
+    category,
+    total: breakdown.total,
+    share: breakdown.share,
+    count: breakdown.count,
+    daily: breakdown.daily,
+    transactions: rows
+      .filter((r) => r.category === category && r.type !== BALANCE_ADJUSTMENT_TYPE)
+      .slice(0, DETAIL_TRANSACTION_LIMIT)
+      .map((r) => ({
+        id: r.id,
+        merchant: r.merchant,
+        date: r.date,
+        amount: Number(r.amount) || 0,
+        paymentMethod: r.paymentMethod,
+      })),
+  };
 }

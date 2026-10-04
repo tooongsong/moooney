@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { aggregateTransactions } from './spendingAggregate.ts';
+import { aggregateTransactions, trailingMonths, categoryBreakdown } from './spendingAggregate.ts';
 
 test('expense adds to spend and category totals', () => {
   const r = aggregateTransactions([{ type: 'expense', amount: 50, category: 'Dining' }]);
@@ -71,4 +71,75 @@ test('empty input returns all-zero result', () => {
   assert.equal(r.income, 0);
   assert.equal(r.net, 0);
   assert.deepEqual(r.categoryTotals, []);
+});
+
+// ── trailingMonths — the data behind the overview's default right panel ──────
+
+const row = (date: string, amount: number) =>
+  ({ date, amount, type: 'expense', category: 'Food' });
+
+test('trailingMonths returns exactly count buckets, oldest first', () => {
+  const out = trailingMonths([], 2026, 9, 12);
+  assert.equal(out.length, 12);
+  assert.equal(out[0].key, '2025-10');
+  assert.equal(out[11].key, '2026-09');
+});
+
+test('trailingMonths crosses a year boundary without skipping a month', () => {
+  const out = trailingMonths([], 2026, 2, 4).map((b) => b.key);
+  assert.deepEqual(out, ['2025-11', '2025-12', '2026-01', '2026-02']);
+});
+
+test('trailingMonths sums spend into the right bucket', () => {
+  const out = trailingMonths([row('2026-09-27', 100), row('2026-09-02', 50), row('2026-08-15', 20)], 2026, 9, 3);
+  assert.deepEqual(out.map((b) => [b.key, b.spend]), [['2026-07', 0], ['2026-08', 20], ['2026-09', 150]]);
+});
+
+test('trailingMonths ignores rows outside the window', () => {
+  const out = trailingMonths([row('2024-01-05', 999), row('2026-09-01', 10)], 2026, 9, 2);
+  assert.equal(out.reduce((s, b) => s + b.spend, 0), 10);
+});
+
+test('trailingMonths applies the same type rules as aggregateTransactions', () => {
+  const rows = [
+    { date: '2026-09-01', amount: 100, type: 'expense', category: 'Food' },
+    { date: '2026-09-02', amount: 30, type: 'refund', category: 'Food' },
+    { date: '2026-09-03', amount: 500, type: 'income', category: 'Salary' },
+    { date: '2026-09-04', amount: 7, type: 'balance_adjustment', category: 'Other' },
+  ];
+  assert.equal(trailingMonths(rows, 2026, 9, 1)[0].spend, 70);
+});
+
+// ── categoryBreakdown — the numbers behind the selected-category panel ───────
+
+const d = (date: string, amount: number, category: string, type = 'expense') =>
+  ({ date, amount, category, type });
+
+test('categoryBreakdown totals only the named category', () => {
+  const rows = [d('2026-09-01', 100, 'Food'), d('2026-09-02', 40, 'Transit'), d('2026-09-03', 60, 'Food')];
+  const out = categoryBreakdown(rows, 'Food', 30, '2026-09-01');
+  assert.equal(out.total, 160);
+  assert.equal(out.count, 2);
+});
+
+test('categoryBreakdown share is the fraction of total period spend', () => {
+  const rows = [d('2026-09-01', 75, 'Food'), d('2026-09-02', 25, 'Transit')];
+  assert.equal(categoryBreakdown(rows, 'Food', 30, '2026-09-01').share, 0.75);
+});
+
+test('categoryBreakdown share is 0 when the period has no spend', () => {
+  assert.equal(categoryBreakdown([], 'Food', 30, '2026-09-01').share, 0);
+});
+
+test('categoryBreakdown returns one entry per day of the period', () => {
+  const out = categoryBreakdown([d('2026-09-05', 10, 'Food')], 'Food', 30, '2026-09-01');
+  assert.equal(out.daily.length, 30);
+  assert.equal(out.daily[0].day, 1);
+  assert.equal(out.daily[4].spend, 10);
+  assert.equal(out.daily[29].spend, 0);
+});
+
+test('categoryBreakdown applies refunds to the category it names', () => {
+  const rows = [d('2026-09-01', 100, 'Food'), d('2026-09-02', 30, 'Food', 'refund')];
+  assert.equal(categoryBreakdown(rows, 'Food', 30, '2026-09-01').total, 70);
 });

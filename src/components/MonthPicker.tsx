@@ -29,10 +29,20 @@ export function MonthPicker({ open, onClose, selectedYear, selectedMonth, onSele
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      {/* ponytail: centred dialog on desktop rather than anchored to the
+          trigger — anchoring needs @radix-ui/react-popover or manual rect
+          measurement, and the spec also rules out new dependencies. Upgrade
+          if the jump to screen centre reads as abrupt. */}
       <DialogContent
         showCloseButton={false}
-        className="rounded-t-3xl rounded-b-none border-0 p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] gap-4 bg-paper-card max-w-none w-full"
-        style={{ position: 'fixed', top: 'auto', bottom: 0, left: 0, right: 0, transform: 'none', translate: 'none' }}
+        className="
+          border-0 p-6 gap-4 bg-paper-card
+          max-lg:rounded-t-3xl max-lg:rounded-b-none max-lg:max-w-none max-lg:w-full
+          max-lg:pb-[calc(1.5rem+env(safe-area-inset-bottom))]
+          max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:top-auto
+          max-lg:translate-x-0 max-lg:translate-y-0
+          lg:rounded-3xl lg:max-w-sm
+        "
       >
         <DialogTitle className="sr-only">Select month</DialogTitle>
         <div className="flex items-center justify-center gap-4">
