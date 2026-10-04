@@ -46,3 +46,19 @@ export const DETAIL = {
     { id: 'p5', merchant: 'Shell', date: '2026-08-20', amount: 55.0, paymentMethod: 'Cash' },
   ],
 };
+
+export const OVERVIEW_DATA = {
+  period: 'month' as const,
+  label: 'SEPTEMBER 2026',
+  spend: 8075.73,
+  income: 11200.0,
+  net: 3124.27,
+  categoryTotals: CATEGORY_TOTALS,
+  dailyTrend: Array.from({ length: 30 }, (_, i) => ({
+    day: i + 1,
+    spend: [0, 120, 0, 0, 45, 0, 1200, 0, 0, 86, 0, 310, 0, 0, 0,
+            3014, 0, 55, 0, 0, 220, 0, 0, 0, 185, 0, 0, 90, 0, 0][i] ?? 0,
+  })),
+  dailyAverage: 269.19,
+  monthKey: '2026-09',
+};

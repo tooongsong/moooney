@@ -6,7 +6,8 @@ import { CategoryBlocks } from '@/components/CategoryBlocks';
 import { MonthPicker } from '@/components/MonthPicker';
 import { TrendPanel } from '@/components/TrendPanel';
 import { CategoryDetailPanel } from '@/components/CategoryDetailPanel';
-import { CATEGORY_TOTALS, TREND, DETAIL } from './fixtures';
+import { OverviewClient } from '@/components/OverviewClient';
+import { CATEGORY_TOTALS, TREND, DETAIL, OVERVIEW_DATA } from './fixtures';
 
 // THROWAWAY — scaffolding so the desktop rebuild can be verified without
 // signing in, and without a test account writing to the real database.
@@ -52,6 +53,32 @@ export default function PreviewPage() {
       <Section title="Right panel — selected state with no entries">
         <div className="max-w-[46rem]">
           <CategoryDetailPanel detail={{ ...DETAIL, total: 0, share: 0, count: 0, transactions: [] }} />
+        </div>
+      </Section>
+
+      <Section title="Full /overview — default state (no category selected)">
+        <div className="d-max-xl max-lg:max-w-md mx-auto">
+          <OverviewClient
+            data={OVERVIEW_DATA}
+            period="month"
+            currentYear={2026}
+            currentMonth={9}
+            trend={TREND}
+            detail={null}
+          />
+        </div>
+      </Section>
+
+      <Section title="Full /overview — 'Car' selected">
+        <div className="d-max-xl max-lg:max-w-md mx-auto">
+          <OverviewClient
+            data={OVERVIEW_DATA}
+            period="month"
+            currentYear={2026}
+            currentMonth={9}
+            trend={TREND}
+            detail={DETAIL}
+          />
         </div>
       </Section>
 
