@@ -4,9 +4,14 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 
 export interface TrendBarItem {
+  /** React key — must be unique within the set. */
   key: string;
   value: number;
   href?: string;
+  /** What to print under the bar. Defaults to `key`, which is fine when the
+   *  labels are already distinct; a 12-month strip labelled by initial is not
+   *  (J, M and A each repeat), so those pass both separately. */
+  label?: string;
 }
 
 interface TrendBarsProps {
@@ -49,7 +54,7 @@ export function TrendBars({ items, labelEvery = 1, height = 128 }: TrendBarsProp
             />
             {i % labelEvery === 0 && (
               <span className="text-[8px] font-bold uppercase tracking-widest text-ink-faint shrink-0">
-                {item.key}
+                {item.label ?? item.key}
               </span>
             )}
           </Tag>

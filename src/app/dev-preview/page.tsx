@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import { notFound } from 'next/navigation';
 import { CategoryBlocks } from '@/components/CategoryBlocks';
-import { CATEGORY_TOTALS } from './fixtures';
+import { TrendPanel } from '@/components/TrendPanel';
+import { CategoryDetailPanel } from '@/components/CategoryDetailPanel';
+import { CATEGORY_TOTALS, TREND, DETAIL } from './fixtures';
 
 // THROWAWAY — scaffolding so the desktop rebuild can be verified without
 // signing in, and without a test account writing to the real database.
@@ -35,6 +37,20 @@ export default function PreviewPage() {
           selected={selected}
           onSelect={setSelected}
         />
+      </Section>
+
+      <Section title="Right panel — default state (nothing selected)">
+        <div className="max-w-[46rem]"><TrendPanel {...TREND} /></div>
+      </Section>
+
+      <Section title="Right panel — selected state ('Car')">
+        <div className="max-w-[46rem]"><CategoryDetailPanel detail={DETAIL} /></div>
+      </Section>
+
+      <Section title="Right panel — selected state with no entries">
+        <div className="max-w-[46rem]">
+          <CategoryDetailPanel detail={{ ...DETAIL, total: 0, share: 0, count: 0, transactions: [] }} />
+        </div>
       </Section>
 
       <Section title="CategoryBlocks — empty state">
