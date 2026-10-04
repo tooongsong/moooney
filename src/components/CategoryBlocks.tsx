@@ -2,6 +2,7 @@
 
 import { motion } from 'motion/react';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
+import { circleSizes } from '@/lib/circleSizes';
 
 interface CategoryBlocksProps {
   data: { name: string; value: number }[];
@@ -15,7 +16,9 @@ interface CategoryBlocksProps {
   labelOutside?: boolean;
 }
 
-const MAX_SHOWN = 5;
+/** Guaranteed gap between adjacent ranks, so the ordering is visible even when
+ *  two categories are within a few percent of each other. */
+const MIN_STEP = 8;
 const ORGANIC_RADIUS = '48% 52% 50% 50% / 52% 48% 52% 48%';
 /** A circle's inscribed square: side = diameter / √2. Text wider than this
  *  reaches past the curve even though it fits the bounding box. */
@@ -37,20 +40,15 @@ export function CategoryBlocks({
     );
   }
 
-  const top = data.slice(0, MAX_SHOWN);
-  const max = top[0].value;
+  // Every category that has spending, largest first — the old cap at five hid
+  // the tail, and a category you cannot see is one you cannot reason about.
+  const top = [...data].sort((a, b) => b.value - a.value);
+  const sizes = circleSizes(top.map((e) => e.value), { min: minSize, max: maxSize, minStep: MIN_STEP });
 
   return (
     <div className="flex flex-wrap items-end gap-4">
       {top.map((entry, i) => {
-        // A circle is read by its area, so diameter has to track the square
-        // root of the value. Scaling diameter directly makes area grow with
-        // the square of the value: the leader balloons and everything behind
-        // it collapses into one indistinguishable size. On a real month that
-        // left ranks 2–5 separated by 5.0, 2.4 and 0.1 px.
-        const size = max > 0
-          ? minSize + Math.sqrt(entry.value / max) * (maxSize - minSize)
-          : minSize;
+        const size = sizes[i];
         // With no selection the largest circle leads, as it always has. Once
         // something is selected the accent follows it instead — two accented
         // shapes would leave neither of them emphasised.
