@@ -5,6 +5,7 @@ import { SwipeableTransactionRow } from '@/components/SwipeableTransactionRow';
 import { SwipeableTransferRow } from '@/components/SwipeableTransferRow';
 import { AdjustmentRow } from '@/components/AdjustmentRow';
 import { BALANCE_ADJUSTMENT_TYPE } from '@/lib/categories';
+import { proportions } from '@/lib/proportions';
 import type { HistoryItem } from '@/app/actions/history';
 
 export function HistoryList({ transactions }: { transactions: HistoryItem[] }) {
@@ -30,15 +31,19 @@ export function HistoryList({ transactions }: { transactions: HistoryItem[] }) {
     );
   }
 
+  // Against the largest amount actually on screen — a rule that answers "how
+  // big is this next to the others here" has to be scaled to here.
+  const rules = proportions(items.map((i) => Number(i.amount) || 0));
+
   return (
     <div className="flex flex-col">
-      {items.map((item) =>
+      {items.map((item, i) =>
         item.kind === 'transfer' ? (
-          <SwipeableTransferRow key={item.id} transfer={item} onDeleted={handleDeleted} />
+          <SwipeableTransferRow key={item.id} transfer={item} proportion={rules[i]} onDeleted={handleDeleted} />
         ) : item.type === BALANCE_ADJUSTMENT_TYPE ? (
-          <AdjustmentRow key={item.id} transaction={item} />
+          <AdjustmentRow key={item.id} transaction={item} proportion={rules[i]} />
         ) : (
-          <SwipeableTransactionRow key={item.id} transaction={item} onDeleted={handleDeleted} />
+          <SwipeableTransactionRow key={item.id} transaction={item} proportion={rules[i]} onDeleted={handleDeleted} />
         )
       )}
     </div>
