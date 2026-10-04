@@ -3,13 +3,27 @@ import { ArrowRightLeft, Plus } from 'lucide-react';
 import { AccountTypeIcon } from '@/components/AccountTypeIcon';
 import { BottomNav } from '@/components/BottomNav';
 import { QuickAddIsland } from '@/components/QuickAddIsland';
-import { getAccountBalances } from '@/app/actions/accounts';
+import { getAccountBalances, getAccountDetail, getAccountLedger, getMonthFlowAcrossAccounts } from '@/app/actions/accounts';
+import { AccountCirclesClient } from '@/components/AccountCirclesClient';
+import { AccountsPanel } from '@/components/AccountsPanel';
 import { ACCOUNT_GROUPS, computeNetWorth } from '@/lib/accountTypes';
 import { formatCurrency } from '@/lib/utils';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 
-export default async function AccountsPage() {
-  const accounts = await getAccountBalances();
+export default async function AccountsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ account?: string }>;
+}) {
+  const selectedId = (await searchParams).account?.trim() || null;
+
+  const [accounts, flow, detail, ledger] = await Promise.all([
+    getAccountBalances(),
+    getMonthFlowAcrossAccounts(),
+    selectedId ? getAccountDetail(selectedId) : Promise.resolve(null),
+    selectedId ? getAccountLedger(selectedId) : Promise.resolve(null),
+  ]);
+
   const { netWorth, totalAssets, totalLiabilities } = computeNetWorth(accounts);
 
   const groups = ACCOUNT_GROUPS.map((g) => ({
@@ -22,7 +36,7 @@ export default async function AccountsPage() {
   })).filter((g) => g.accounts.length > 0);
 
   return (
-    <div className="d-max-lg max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
+    <div className="d-max-xl max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
 
       <div className="d-mobile-only">
         <QuickAddIsland />
@@ -42,7 +56,8 @@ export default async function AccountsPage() {
           </Link>
         </div>
       ) : (
-        <>
+        <div className="d-split">
+          <div className="d-split-main">
           {/* ── Net Worth hero ── */}
           <section className="pt-3 pb-5">
             {/* Page identity — small, not a headline */}
@@ -85,6 +100,12 @@ export default async function AccountsPage() {
               </Link>
             </div>
           )}
+
+          {/* ── Accounts as circles — desktop only, so the phone keeps the
+                 grouped list it has always had and nothing below changes ── */}
+          <div className="d-desktop-only mb-10">
+            <AccountCirclesClient accounts={accounts} selected={selectedId} />
+          </div>
 
           {/* ── Account groups — no horizontal dividers ── */}
           <div className="space-y-6">
@@ -145,7 +166,12 @@ export default async function AccountsPage() {
               Add account
             </Link>
           </div>
-        </>
+          </div>
+
+          <div className="d-split-panel d-panel-rule d-desktop-only">
+            <AccountsPanel ledger={ledger} detail={detail} flow={flow} />
+          </div>
+        </div>
       )}
 
       <BottomNav />
