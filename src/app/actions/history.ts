@@ -33,7 +33,9 @@ export async function listHistoryItems({
     ...transferRows.map((t) => ({ kind: 'transfer' as const, ...t })),
   ];
 
-  merged.sort((a, b) => b.date.getTime() - a.date.getTime() || b.createdAt.getTime() - a.createdAt.getTime());
+  // date is "YYYY-MM-DD", which sorts correctly as a string; createdAt is a
+  // real instant and breaks ties within a day.
+  merged.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.getTime() - a.createdAt.getTime());
 
   return merged;
 }

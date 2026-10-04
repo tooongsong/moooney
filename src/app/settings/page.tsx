@@ -60,6 +60,7 @@ export default async function SettingsPage() {
         <PreferencesSection
           currency={prefs.currency}
           defaultAccount={prefs.defaultAccount}
+          timezone={prefs.timezone}
           accountNames={accounts.map((a) => a.name)}
         />
       </section>

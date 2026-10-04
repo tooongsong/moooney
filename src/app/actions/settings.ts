@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { db } from '@/db';
 import { paymentMethods, transactions, transfers, customCategories } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
+import { safeTimeZone } from '@/lib/dates';
 
 async function getUser() {
   const supabase = await createClient();
@@ -29,22 +30,27 @@ export async function getProfile(): Promise<{ name: string; email: string; avata
   };
 }
 
-export async function getPreferences(): Promise<{ currency: string; defaultAccount: string }> {
+export async function getPreferences(): Promise<{ currency: string; defaultAccount: string; timezone: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
   return {
     currency:       (user.user_metadata?.currency       as string) ?? 'USD',
     defaultAccount: (user.user_metadata?.defaultAccount as string) ?? '',
+    // Empty means "not chosen yet" — the client offers its own zone to save.
+    timezone:       (user.user_metadata?.timezone       as string) ?? '',
   };
 }
 
 export async function updatePreferences(
-  prefs: { currency?: string; defaultAccount?: string },
+  prefs: { currency?: string; defaultAccount?: string; timezone?: string },
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { success: false, error: 'Not authenticated' };
+  if (prefs.timezone !== undefined && safeTimeZone(prefs.timezone) !== prefs.timezone) {
+    return { success: false, error: `Unknown time zone: ${prefs.timezone}` };
+  }
   const { error } = await supabase.auth.updateUser({
     data: { ...user.user_metadata, ...prefs },
   });
@@ -95,7 +101,7 @@ export async function exportTransactionsCSV(): Promise<string> {
 
   const header = 'Date,Type,Amount,Category,Merchant,Description,Account,Notes';
   const lines = rows.map((r) => [
-    r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
+    r.date,
     r.type,
     r.amount,
     r.category,
@@ -120,7 +126,7 @@ export async function exportTransactionsJSON(): Promise<string> {
   });
 
   const out = rows.map((r) => ({
-    date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
+    date: r.date,
     type: r.type,
     amount: r.amount,
     category: r.category,

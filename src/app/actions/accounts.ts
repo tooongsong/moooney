@@ -1,7 +1,6 @@
 'use server';
 
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { startOfMonth, endOfMonth } from 'date-fns';
 import { randomUUID } from 'crypto';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
@@ -11,6 +10,7 @@ import { ASSET_TYPES, LIABILITY_TYPES } from '@/lib/accountTypes';
 import { toCents } from '@/lib/balanceAdjustment';
 import { BALANCE_ADJUSTMENT_TYPE, BALANCE_ADJUSTMENT_CATEGORY } from '@/lib/categories';
 import { createClient } from '@/lib/supabase/server';
+import { nowPartsIn, monthRange, todayIn, safeTimeZone, type CalendarDate } from '@/lib/dates';
 
 async function getUser() {
   const supabase = await createClient();
@@ -140,8 +140,8 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
 async function accountMonthFlow(
   userId: string,
   account: { id: string; name: string },
-  monthStart: Date,
-  monthEnd: Date,
+  monthStart: CalendarDate,
+  monthEnd: CalendarDate,
 ): Promise<{ thisMonthIn: number; thisMonthOut: number }> {
   const rows = await db.execute<{ month_in: string | number | null; month_out: string | number | null }>(sql`
     SELECT
@@ -165,9 +165,9 @@ export async function getAccountDetail(id: string): Promise<AccountDetail | null
   });
   if (!account || account.archivedAt) return null;
 
-  const now = new Date();
-  const monthStart = startOfMonth(now);
-  const monthEnd   = endOfMonth(now);
+  const tz = safeTimeZone(user.user_metadata?.timezone as string | undefined);
+  const { year, month } = nowPartsIn(tz);
+  const [monthStart, monthEnd] = monthRange(year, month);
 
   // Reuses the same corrected all-account delta computation getAccountBalances
   // uses, rather than a second hand-written copy of the matching rule — the
@@ -214,7 +214,7 @@ export async function adjustAccountBalance(
     await db.insert(transactions).values({
       id:              randomUUID(),
       userId:          user.id,
-      date:            new Date(),
+      date:            todayIn(safeTimeZone(user.user_metadata?.timezone as string | undefined)),
       amount:          deltaCents / 100,
       type:            BALANCE_ADJUSTMENT_TYPE,
       category:        BALANCE_ADJUSTMENT_CATEGORY,

@@ -2,13 +2,12 @@
 
 import { randomUUID } from 'crypto';
 import { and, asc, desc, eq, gte, isNull, like, lte, or } from 'drizzle-orm';
-import { startOfMonth, endOfMonth, parse, startOfYear, endOfYear } from 'date-fns';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { paymentMethods, transfers } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
-import { parseDateInputValue } from '@/lib/utils';
+import { nowPartsIn, monthRange, yearRange, safeTimeZone, toCalendarDate } from '@/lib/dates';
 
 async function getUser() {
   const supabase = await createClient();
@@ -66,7 +65,7 @@ export async function createTransfer(input: TransferInput) {
     await db.insert(transfers).values({
       id,
       userId:        user.id,
-      date:          parseDateInputValue(input.date),
+      date:          toCalendarDate(input.date),
       amount:        input.amount,
       fromAccount:   input.fromAccount,
       fromAccountId,
@@ -96,7 +95,7 @@ export async function updateTransfer(id: string, input: TransferInput) {
     await db
       .update(transfers)
       .set({
-        date:          parseDateInputValue(input.date),
+        date:          toCalendarDate(input.date),
         amount:        input.amount,
         fromAccount:   input.fromAccount,
         fromAccountId,
@@ -141,16 +140,17 @@ export async function listTransfers({
 
   let dateFilter;
   if (!allTime) {
+    let range: [string, string];
     if (month) {
-      const parsed = parse(month, 'yyyy-MM', new Date());
-      dateFilter = and(gte(transfers.date, startOfMonth(parsed)), lte(transfers.date, endOfMonth(parsed)));
+      range = monthRange(Number(month.slice(0, 4)), Number(month.slice(5, 7)));
     } else if (year) {
-      const parsed = new Date(year, 0, 1);
-      dateFilter = and(gte(transfers.date, startOfYear(parsed)), lte(transfers.date, endOfYear(parsed)));
+      range = yearRange(year);
     } else {
-      const parsed = new Date();
-      dateFilter = and(gte(transfers.date, startOfMonth(parsed)), lte(transfers.date, endOfMonth(parsed)));
+      const tz = safeTimeZone(user.user_metadata?.timezone as string | undefined);
+      const now = nowPartsIn(tz);
+      range = monthRange(now.year, now.month);
     }
+    dateFilter = and(gte(transfers.date, range[0]), lte(transfers.date, range[1]));
   }
 
   return db.query.transfers.findMany({

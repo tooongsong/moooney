@@ -2,7 +2,6 @@
 
 import { randomUUID } from 'crypto';
 import { and, desc, eq, gte, inArray, isNull, lte, like, ne, or } from 'drizzle-orm';
-import { startOfMonth, endOfMonth, startOfDay, endOfDay, parse, startOfYear, endOfYear } from 'date-fns';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
@@ -17,7 +16,8 @@ async function getUser() {
 }
 import { openai, modelName, ExtractionSchema, buildExtractionSystemPrompt } from '@/lib/openai';
 import { CATEGORIES, DEFAULT_CATEGORY, BALANCE_ADJUSTMENT_TYPE, type TransactionType } from '@/lib/categories';
-import { toDateInputValue, parseDateInputValue } from '@/lib/utils';
+import { toDateInputValue } from '@/lib/utils';
+import { nowPartsIn, todayIn, monthRange, yearRange, safeTimeZone, toCalendarDate } from '@/lib/dates';
 import { aggregateTransactions } from '@/lib/spendingAggregate';
 
 /** Resolve a single account name → id for the current user. */
@@ -193,7 +193,7 @@ export async function saveTransaction(input: SaveTransactionInput) {
     await db.insert(transactions).values({
       id,
       userId:          user.id,
-      date:            parseDateInputValue(input.date),
+      date:            toCalendarDate(input.date),
       amount:          input.amount,
       type:            input.type,
       category:        input.category,
@@ -230,7 +230,7 @@ export async function saveTransactions(inputs: SaveTransactionInput[]) {
     const rows = inputs.map((input) => ({
       id:              randomUUID(),
       userId:          user.id,
-      date:            parseDateInputValue(input.date),
+      date:            toCalendarDate(input.date),
       amount:          input.amount,
       type:            input.type,
       category:        input.category,
@@ -265,7 +265,7 @@ export async function updateTransaction(id: string, input: SaveTransactionInput)
     await db
       .update(transactions)
       .set({
-        date: parseDateInputValue(input.date),
+        date: toCalendarDate(input.date),
         amount: input.amount,
         type: input.type,
         category: input.category,
@@ -320,11 +320,10 @@ export type TransactionListRow = Pick<Transaction, keyof typeof LIST_COLUMNS>;
 
 export async function getHomeData() {
   const user = await getUser();
-  const now = new Date();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
-  const todayStart = startOfDay(now);
-  const todayEnd = endOfDay(now);
+  const tz = safeTimeZone(user.user_metadata?.timezone as string | undefined);
+  const { year, month } = nowPartsIn(tz);
+  const [monthStart, monthEnd] = monthRange(year, month);
+  const today = todayIn(tz);
 
   const [monthTxns, recent] = await Promise.all([
     db.query.transactions.findMany({
@@ -347,7 +346,7 @@ export async function getHomeData() {
   // kept as its own small loop rather than folded into the shared function.
   let todaySpend = 0;
   for (const t of monthTxns) {
-    if (t.date < todayStart || t.date > todayEnd) continue;
+    if (t.date !== today) continue;
     const amt = Number(t.amount) || 0;
     if (t.type === 'expense') todaySpend += amt;
     else if (t.type === 'refund') todaySpend -= amt;
@@ -384,16 +383,17 @@ export async function listTransactions({
 
   let dateFilter;
   if (!allTime) {
+    const tz = safeTimeZone(user.user_metadata?.timezone as string | undefined);
+    let range: [string, string];
     if (month) {
-      const parsed = parse(month, 'yyyy-MM', new Date());
-      dateFilter = and(gte(transactions.date, startOfMonth(parsed)), lte(transactions.date, endOfMonth(parsed)));
+      range = monthRange(Number(month.slice(0, 4)), Number(month.slice(5, 7)));
     } else if (year) {
-      const parsed = new Date(year, 0, 1);
-      dateFilter = and(gte(transactions.date, startOfYear(parsed)), lte(transactions.date, endOfYear(parsed)));
+      range = yearRange(year);
     } else {
-      const parsed = new Date();
-      dateFilter = and(gte(transactions.date, startOfMonth(parsed)), lte(transactions.date, endOfMonth(parsed)));
+      const now = nowPartsIn(tz);
+      range = monthRange(now.year, now.month);
     }
+    dateFilter = and(gte(transactions.date, range[0]), lte(transactions.date, range[1]));
   }
 
   return db.query.transactions.findMany({

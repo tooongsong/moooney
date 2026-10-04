@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { updatePreferences } from '@/app/actions/settings';
+import { TimeZoneRow } from './TimeZoneRow';
 
 const CURRENCIES = [
   { code: 'USD', label: 'USD — US Dollar' },
@@ -24,10 +25,11 @@ const CURRENCIES = [
 interface Props {
   currency: string;
   defaultAccount: string;
+  timezone: string;
   accountNames: string[];
 }
 
-export function PreferencesSection({ currency: initCurrency, defaultAccount: initAccount, accountNames }: Props) {
+export function PreferencesSection({ currency: initCurrency, defaultAccount: initAccount, timezone, accountNames }: Props) {
   const [currency, setCurrency]       = useState(initCurrency);
   const [defaultAccount, setDefaultAccount] = useState(initAccount);
 
@@ -38,6 +40,8 @@ export function PreferencesSection({ currency: initCurrency, defaultAccount: ini
 
   return (
     <div className="divide-y divide-line">
+      <TimeZoneRow timezone={timezone} />
+
       <div className="py-3 flex items-center justify-between">
         <span className="text-sm text-ink">Currency</span>
         <select

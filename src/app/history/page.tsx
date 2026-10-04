@@ -7,6 +7,7 @@ import { BottomNav } from '@/components/BottomNav';
 import { QuickAddIsland } from '@/components/QuickAddIsland';
 import { listHistoryItems } from '@/app/actions/history';
 import { getAllCategories, getPaymentMethodNames } from '@/app/actions/manage';
+import { getCurrentPeriod } from '@/app/actions/time';
 
 export default async function HistoryPage({
   searchParams,
@@ -14,10 +15,8 @@ export default async function HistoryPage({
   searchParams: Promise<{ q?: string; month?: string; year?: string; category?: string; account?: string; allTime?: string }>;
 }) {
   const params = await searchParams;
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-  const [data, categories, accountNames] = await Promise.all([
+  const [{ year: currentYear, month: currentMonth }, data, categories, accountNames] = await Promise.all([
+    getCurrentPeriod(),
     listHistoryItems({
       query:      params.q,
       month:      params.month,

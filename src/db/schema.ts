@@ -1,4 +1,4 @@
-import { pgTable, text, numeric, boolean, uuid, jsonb, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, text, numeric, boolean, uuid, jsonb, timestamp, date } from 'drizzle-orm/pg-core';
 
 export const paymentMethods = pgTable('payment_methods', {
   id:              text('id').primaryKey(),
@@ -23,7 +23,7 @@ export type PaymentMethod = typeof paymentMethods.$inferSelect;
 export const transactions = pgTable('transactions', {
   id:              text('id').primaryKey(),
   userId:          uuid('user_id').notNull(),
-  date:            timestamp('date').notNull(),
+  date:            date('date', { mode: 'string' }).notNull(),
   amount:          numeric('amount', { precision: 12, scale: 2 }).notNull().$type<number>(),
   type:            text('type', { enum: ['expense', 'income', 'refund', 'balance_adjustment'] }).notNull().default('expense'),
   category:        text('category').notNull(),
@@ -55,7 +55,7 @@ export type CustomCategory = typeof customCategories.$inferSelect;
 export const transfers = pgTable('transfers', {
   id:            text('id').primaryKey(),
   userId:        uuid('user_id').notNull(),
-  date:          timestamp('date').notNull(),
+  date:          date('date', { mode: 'string' }).notNull(),
   amount:        numeric('amount', { precision: 12, scale: 2 }).notNull().$type<number>(),
   fromAccount:   text('from_account').notNull(),
   fromAccountId: text('from_account_id').references(() => paymentMethods.id),
