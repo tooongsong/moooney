@@ -5,8 +5,7 @@ import { AccountFilter } from '@/components/AccountFilter';
 import { HistoryList } from '@/components/HistoryList';
 import { BottomNav } from '@/components/BottomNav';
 import { QuickAddIsland } from '@/components/QuickAddIsland';
-import { listHistoryItems } from '@/app/actions/history';
-import { getAllCategories, getPaymentMethodNames } from '@/app/actions/manage';
+import { listHistoryItems, getFilterTotals } from '@/app/actions/history';
 import { getCurrentPeriod } from '@/app/actions/time';
 
 export default async function HistoryPage({
@@ -15,7 +14,7 @@ export default async function HistoryPage({
   searchParams: Promise<{ q?: string; month?: string; year?: string; category?: string; account?: string; allTime?: string }>;
 }) {
   const params = await searchParams;
-  const [{ year: currentYear, month: currentMonth }, data, categories, accountNames] = await Promise.all([
+  const [{ year: currentYear, month: currentMonth }, data, filterTotals] = await Promise.all([
     getCurrentPeriod(),
     listHistoryItems({
       query:      params.q,
@@ -25,8 +24,11 @@ export default async function HistoryPage({
       account:    params.account,
       allTime:    params.allTime === 'true',
     }),
-    getAllCategories(),
-    getPaymentMethodNames(),
+    getFilterTotals({
+      month:   params.month,
+      year:    params.year ? Number(params.year) : undefined,
+      allTime: params.allTime === 'true',
+    }),
   ]);
 
   return (
@@ -45,8 +47,8 @@ export default async function HistoryPage({
           <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint">History</p>
           <SearchInput placeholder="Search…" />
           <HistoryPeriodNav currentYear={currentYear} currentMonth={currentMonth} />
-          <CategoryFilter categories={categories} />
-          {accountNames.length > 0 && <AccountFilter accounts={accountNames} />}
+          <CategoryFilter categories={filterTotals.categories} />
+          {filterTotals.accounts.length > 0 && <AccountFilter accounts={filterTotals.accounts} />}
         </section>
 
         {/* Transaction list */}
