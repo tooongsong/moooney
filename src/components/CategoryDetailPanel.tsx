@@ -47,7 +47,7 @@ export function CategoryDetailPanel({ detail }: { detail: Detail }) {
             <Link
               key={t.id}
               href={`/history/${t.id}`}
-              className="flex items-baseline justify-between gap-4 py-3 border-b border-line last:border-0 hover:bg-sand/40 rounded-lg transition-colors"
+              className="flex items-baseline justify-between gap-4 py-3 border-b border-line last:border-0 hover:bg-sand/40 transition-colors"
             >
               <span className="min-w-0">
                 <span className="block text-sm font-semibold truncate">{t.merchant}</span>
