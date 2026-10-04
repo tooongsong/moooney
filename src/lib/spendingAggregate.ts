@@ -41,3 +41,51 @@ export function aggregateTransactions(txns: AggregateInput[]): AggregateResult {
       .sort((a, b) => b.value - a.value),
   };
 }
+
+export interface DatedInput extends AggregateInput {
+  /** Calendar date, "YYYY-MM-DD". */
+  date: string;
+}
+
+export interface MonthBucket {
+  year: number;
+  month: number;
+  /** "YYYY-MM" */
+  key: string;
+  spend: number;
+}
+
+/**
+ * The `count` calendar months ending at (endYear, endMonth), oldest first.
+ * Months with no transactions are present with spend 0 — a trend with gaps
+ * punched out of it reads as a different shape than the real one.
+ */
+export function trailingMonths(
+  rows: DatedInput[],
+  endYear: number,
+  endMonth: number,
+  count: number,
+): MonthBucket[] {
+  const buckets: MonthBucket[] = [];
+  const index = new Map<string, DatedInput[]>();
+
+  for (let i = count - 1; i >= 0; i--) {
+    const offset = endMonth - 1 - i;
+    const year = endYear + Math.floor(offset / 12);
+    const month = ((offset % 12) + 12) % 12 + 1;
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    buckets.push({ year, month, key, spend: 0 });
+    index.set(key, []);
+  }
+
+  for (const r of rows) {
+    const bucket = index.get(r.date.slice(0, 7));
+    if (bucket) bucket.push(r);
+  }
+
+  for (const b of buckets) {
+    b.spend = aggregateTransactions(index.get(b.key)!).spend;
+  }
+
+  return buckets;
+}
