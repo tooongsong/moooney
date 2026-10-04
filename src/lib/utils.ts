@@ -5,6 +5,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** formatCurrency with a leading typographic minus, matching the sign the
+ *  amount column prints. Intl's own output uses a hyphen, which sits at a
+ *  different weight and width beside it. */
+export function formatSignedCurrency(amount: number): string {
+  return `${amount < 0 ? '\u2212' : ''}${formatCurrency(Math.abs(amount))}`;
+}
+
 export function formatCurrency(amount: number | string): string {
   const num = typeof amount === 'string' ? parseFloat(amount) : amount;
   return new Intl.NumberFormat('en-US', {

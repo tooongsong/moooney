@@ -2,11 +2,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ChevronLeft, Pencil } from 'lucide-react';
 import { AccountTypeIcon } from '@/components/AccountTypeIcon';
-import { HistoryList } from '@/components/HistoryList';
+import { AccountLedger } from '@/components/AccountLedger';
 import { BottomNav } from '@/components/BottomNav';
 import { EditBalanceDialog } from '@/components/EditBalanceDialog';
-import { getAccountDetail } from '@/app/actions/accounts';
-import { listHistoryItems } from '@/app/actions/history';
+import { getAccountDetail, getAccountLedger } from '@/app/actions/accounts';
 import { formatCurrency } from '@/lib/utils';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 
@@ -16,18 +15,12 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [detail, history] = await Promise.all([
+  const [detail, ledger] = await Promise.all([
     getAccountDetail(id),
-    listHistoryItems({ account: undefined, allTime: true, includeAdjustments: true }),
+    getAccountLedger(id),
   ]);
 
-  if (!detail) notFound();
-
-  // Filter history to this account (by name, since HistoryList items carry paymentMethod name)
-  const accountHistory = history.filter((item) => {
-    if (item.kind === 'transaction') return item.paymentMethod === detail.name;
-    return item.fromAccount === detail.name || item.toAccount === detail.name;
-  });
+  if (!detail || !ledger) notFound();
 
   return (
     <div className="d-max-lg max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
@@ -92,7 +85,7 @@ export default async function AccountDetailPage({
       {/* Transaction history */}
       <section className="pt-6">
         <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-4">All Transactions</p>
-        <HistoryList transactions={accountHistory} />
+        <AccountLedger ledger={ledger} />
       </section>
 
       <BottomNav />

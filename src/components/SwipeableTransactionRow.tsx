@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatSignedCurrency, formatDate } from '@/lib/utils';
 import { deleteTransaction } from '@/app/actions/transactions';
 import type { Transaction } from '@/db/schema';
 import type { TransactionListRow } from '@/app/actions/transactions';
@@ -20,9 +20,12 @@ const TAP_THRESHOLD = 6;
 interface SwipeableTransactionRowProps {
   transaction: TransactionListRow;
   onDeleted: (id: string) => void;
+  /** Balance standing after this entry. Shown only on an account's own
+   *  ledger — across accounts a running balance means nothing. */
+  balanceAfter?: number;
 }
 
-export function SwipeableTransactionRow({ transaction, onDeleted }: SwipeableTransactionRowProps) {
+export function SwipeableTransactionRow({ transaction, onDeleted, balanceAfter }: SwipeableTransactionRowProps) {
   const router = useRouter();
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -100,12 +103,19 @@ export function SwipeableTransactionRow({ transaction, onDeleted }: SwipeableTra
           <span className="text-base font-semibold text-ink truncate leading-snug">
             {transaction.merchant}
           </span>
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint mt-0.5 truncate">
-            {transaction.category}
-            {' · '}
-            {formatDate(transaction.date, { day: 'numeric', month: 'short' })}
-            {transaction.paymentMethod ? ` · ${transaction.paymentMethod}` : ''}
-            {transaction.needsReview ? ' · Review' : ''}
+          <span className="flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-widest text-ink-faint mt-0.5">
+            {/* The balance is the point of this line, so the category and date
+                give way first — a cut-off number is a wrong number. */}
+            <span className="truncate">
+              {transaction.category}
+              {' · '}
+              {formatDate(transaction.date, { day: 'numeric', month: 'short' })}
+              {transaction.paymentMethod ? ` · ${transaction.paymentMethod}` : ''}
+              {transaction.needsReview ? ' · Review' : ''}
+            </span>
+            {balanceAfter !== undefined && (
+              <span className="shrink-0 tabular-nums">· {formatSignedCurrency(balanceAfter)}</span>
+            )}
           </span>
         </div>
         <span className="text-base font-bold tabular-nums shrink-0 text-ink">

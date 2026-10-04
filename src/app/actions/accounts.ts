@@ -5,12 +5,14 @@ import { randomUUID } from 'crypto';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { paymentMethods, transactions, transfers } from '@/db/schema';
+import { paymentMethods, transactions, transfers, type Transaction, type Transfer } from '@/db/schema';
 import { ASSET_TYPES, LIABILITY_TYPES } from '@/lib/accountTypes';
 import { toCents } from '@/lib/balanceAdjustment';
 import { BALANCE_ADJUSTMENT_TYPE, BALANCE_ADJUSTMENT_CATEGORY } from '@/lib/categories';
 import { createClient } from '@/lib/supabase/server';
 import { nowPartsIn, monthRange, todayIn, safeTimeZone, type CalendarDate } from '@/lib/dates';
+import { runningBalances } from '@/lib/ledger';
+import { or, desc, isNull } from 'drizzle-orm';
 
 async function getUser() {
   const supabase = await createClient();
@@ -232,4 +234,95 @@ export async function adjustAccountBalance(
     console.error('adjustAccountBalance error:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
+}
+
+
+/** Columns the ledger rows render, plus what the running balance needs. */
+const LEDGER_TXN_COLUMNS = {
+  id: true, date: true, createdAt: true, amount: true, type: true,
+  category: true, merchant: true, paymentMethod: true, paymentMethodId: true,
+  needsReview: true,
+} as const;
+
+type LedgerTransaction = { kind: 'transaction' }
+  & Pick<Transaction, keyof typeof LEDGER_TXN_COLUMNS>
+  & { amount: number };
+
+type LedgerTransfer = { kind: 'transfer' } & Transfer & { amount: number };
+
+export type AccountLedgerEntry = (LedgerTransaction | LedgerTransfer) & { balanceAfter: number };
+
+export interface AccountLedger {
+  accountId: string;
+  accountName: string;
+  /** Where the account stood before the first entry below. */
+  opening: number;
+  /** The earliest entry's date, so the opening row can say what it precedes. */
+  firstEntryDate: CalendarDate | null;
+  /** Newest first, each tagged with the balance standing after it. */
+  entries: AccountLedgerEntry[];
+}
+
+/**
+ * One account's entries with a running balance, and the opening balance they
+ * start from.
+ *
+ * The page used to fetch every transaction the user has and filter in memory;
+ * this selects only the rows that touch this account.
+ */
+export async function getAccountLedger(accountId: string): Promise<AccountLedger | null> {
+  const user = await getUser();
+
+  const account = await db.query.paymentMethods.findFirst({
+    where: and(eq(paymentMethods.id, accountId), eq(paymentMethods.userId, user.id)),
+    columns: { id: true, name: true, startingBalance: true },
+  });
+  if (!account) return null;
+
+  const mine = { id: account.id, name: account.name };
+
+  const [txnRows, transferRows] = await Promise.all([
+    db.query.transactions.findMany({
+      where: and(
+        eq(transactions.userId, user.id),
+        or(
+          eq(transactions.paymentMethodId, account.id),
+          and(isNull(transactions.paymentMethodId), eq(transactions.paymentMethod, account.name)),
+        ),
+      ),
+      columns: LEDGER_TXN_COLUMNS,
+      orderBy: [desc(transactions.date), desc(transactions.createdAt)],
+    }),
+    db.query.transfers.findMany({
+      where: and(
+        eq(transfers.userId, user.id),
+        or(
+          eq(transfers.fromAccountId, account.id),
+          eq(transfers.toAccountId, account.id),
+          and(isNull(transfers.fromAccountId), eq(transfers.fromAccount, account.name)),
+          and(isNull(transfers.toAccountId), eq(transfers.toAccount, account.name)),
+        ),
+      ),
+      orderBy: [desc(transfers.date), desc(transfers.createdAt)],
+    }),
+  ]);
+
+  const merged = [
+    ...txnRows.map((t) => ({ kind: 'transaction' as const, ...t, amount: Number(t.amount) || 0 })),
+    ...transferRows.map((t) => ({ kind: 'transfer' as const, ...t, amount: Number(t.amount) || 0 })),
+  ];
+
+  // Oldest first to accumulate, newest first to read.
+  const oldestFirst = [...merged].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.createdAt.getTime() - b.createdAt.getTime(),
+  );
+  const withBalances = runningBalances(toNum(account.startingBalance, 'startingBalance'), oldestFirst, mine);
+
+  return {
+    accountId: account.id,
+    accountName: account.name,
+    opening: toNum(account.startingBalance, 'startingBalance'),
+    firstEntryDate: oldestFirst[0]?.date ?? null,
+    entries: withBalances.reverse() as AccountLedgerEntry[],
+  };
 }

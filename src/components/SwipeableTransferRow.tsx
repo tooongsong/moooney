@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRightLeft, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatSignedCurrency, formatDate } from '@/lib/utils';
 import { deleteTransfer } from '@/app/actions/transfers';
 import type { Transfer } from '@/db/schema';
 
@@ -15,9 +15,12 @@ const TAP_THRESHOLD = 6;
 interface SwipeableTransferRowProps {
   transfer: Transfer;
   onDeleted: (id: string) => void;
+  /** Balance standing after this entry. Shown only on an account's own
+   *  ledger — across accounts a running balance means nothing. */
+  balanceAfter?: number;
 }
 
-export function SwipeableTransferRow({ transfer, onDeleted }: SwipeableTransferRowProps) {
+export function SwipeableTransferRow({ transfer, onDeleted, balanceAfter }: SwipeableTransferRowProps) {
   const router = useRouter();
   const [offset, setOffset] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -97,8 +100,13 @@ export function SwipeableTransferRow({ transfer, onDeleted }: SwipeableTransferR
             <span className="text-base font-semibold text-ink truncate leading-snug">
               {transfer.fromAccount} → {transfer.toAccount}
             </span>
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint mt-0.5">
-              Transfer · {formatDate(transfer.date, { day: 'numeric', month: 'short' })}
+            <span className="flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-widest text-ink-faint mt-0.5">
+              <span className="truncate">
+                Transfer · {formatDate(transfer.date, { day: 'numeric', month: 'short' })}
+              </span>
+              {balanceAfter !== undefined && (
+                <span className="shrink-0 tabular-nums">· {formatSignedCurrency(balanceAfter)}</span>
+              )}
             </span>
           </div>
         </div>
