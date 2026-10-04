@@ -59,10 +59,9 @@ export function CategoryBlocks({
               borderRadius: isAccent ? ORGANIC_RADIUS : '9999px',
               background: isAccent ? 'var(--accent)' : 'var(--sand)',
               // --sand on --paper is a six-value difference, so an unaccented
-              // circle is effectively invisible. On the phone its label sits
-              // inside and carries the shape; once the label moves out, the
-              // circle has to read on its own, and size is the data here.
-              border: !isAccent && labelOutside ? '1px solid var(--line)' : undefined,
+              // circle had no visible edge at all. Size is the data in this
+              // chart, and a shape you cannot see carries none of it.
+              border: isAccent ? undefined : '1px solid var(--line)',
             }}
           >
             {!labelOutside && (
