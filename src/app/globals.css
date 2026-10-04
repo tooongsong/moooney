@@ -203,6 +203,7 @@
 
 /* ── Desktop layout — outside @layer so these always override Tailwind utilities ── */
 .d-sidebar { display: none; }
+.d-desktop-only { display: none; }
 
 @media (min-width: 1024px) {
   /* Sidebar visible + content pushed right */
@@ -233,4 +234,15 @@
 
   /* Column top padding to align with content */
   .d-pt       { padding-top: 1.5rem; }
+
+  /* Master–detail: a wider main column than .d-row gives, with the panel
+     taking the remaining width rather than a fixed 20rem. */
+  .d-split       { display: flex; align-items: flex-start; gap: 2.5rem; }
+  .d-split-main  { width: 44%; flex-shrink: 0; }
+  .d-split-panel { flex: 1; min-width: 0; }
+  .d-panel-rule  { border-left: 1px solid var(--line); padding-left: 2rem; }
+
+  /* The mirror of .d-mobile-only — content that exists only above this
+     breakpoint, so a phone never renders the panel at all. */
+  .d-desktop-only { display: block; }
 }
