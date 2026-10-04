@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, ListFilter, Plus, Settings, Wallet } from 'lucide-react';
+import { BarChart3, Home, ListFilter, Plus, Settings, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV = [
   { href: '/',         icon: Home,       label: 'Home',     match: (p: string) => p === '/' },
+  { href: '/overview', icon: BarChart3,  label: 'Overview', match: (p: string) => p.startsWith('/overview') },
   { href: '/accounts', icon: Wallet,     label: 'Accounts', match: (p: string) => p.startsWith('/accounts') },
   { href: '/history',  icon: ListFilter, label: 'History',  match: (p: string) => p.startsWith('/history') },
 ];

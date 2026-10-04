@@ -3,19 +3,25 @@
 import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, ListFilter, Wallet } from 'lucide-react';
+import { BarChart3, Home, ListFilter, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+// Overview sits beside Home because it is Home's analytical half: Home answers
+// "what did today cost", Overview "where has it all gone". Putting it last
+// would read as a second History.
 const TABS = [
-  { href: '/',         icon: Home,       label: 'Home',     match: (p: string) => p === '/' || p === '/overview' },
+  { href: '/',         icon: Home,       label: 'Home',     match: (p: string) => p === '/' },
+  { href: '/overview', icon: BarChart3,  label: 'Overview', match: (p: string) => p === '/overview' },
   { href: '/accounts', icon: Wallet,     label: 'Accounts', match: (p: string) => p.startsWith('/accounts') },
-  { href: '/history',  icon: ListFilter, label: 'History',  match: (p: string) => p === '/history' },
+  // startsWith, not ===: an exact match leaves every tab dark on a transaction
+  // detail page, which is reached from here. The sidebar already did this.
+  { href: '/history',  icon: ListFilter, label: 'History',  match: (p: string) => p.startsWith('/history') },
 ];
 
 export function BottomNav() {
   const pathname = usePathname();
   const containerRef = useRef<HTMLDivElement>(null);
-  const tabRefs = useRef<(HTMLAnchorElement | null)[]>([null, null, null]);
+  const tabRefs = useRef<(HTMLAnchorElement | null)[]>([]);
   const barRef = useRef<HTMLSpanElement>(null);
   const initialized = useRef(false);
 
@@ -68,7 +74,9 @@ export function BottomNav() {
             ref={(el) => { tabRefs.current[i] = el; }}
             href={tab.href}
             className={cn(
-              'relative z-10 flex flex-col items-center gap-0.5 px-6 py-2 min-w-[5rem] transition-colors duration-150',
+              // Four tabs: the labels, not min-w, set the width, and at px-4 the
+              // pill ran 5.6px past a 320px screen on each side.
+              'relative z-10 flex flex-col items-center gap-0.5 px-3 py-2 min-w-[3.75rem] transition-colors duration-150',
               // Active: text-paper = high-contrast against bg-ink in both modes
               // Inactive: text-ink-faint = #a1a1aa light mode / #6c6c72 dark mode — solid, no opacity trick
               tab.match(pathname) ? 'text-paper' : 'text-ink-faint'

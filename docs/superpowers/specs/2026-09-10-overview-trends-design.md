@@ -13,6 +13,9 @@ the trend?
 ## Non-goals
 
 - No new bottom-nav tab — reached only via a link on Home.
+  **Superseded 2026-10-04:** Overview is now its own entry in both the bottom
+  nav and the desktop sidebar, and the link on Home is gone. It had grown into
+  a main surface rather than a detour off Home.
 - No swipe/prior-period navigation in v1 (confirmed) — each mode shows only
   the current month / current year / all-time. A later iteration can add an
   anchor-date param without changing this version's data shapes.
