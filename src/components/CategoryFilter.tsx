@@ -1,54 +1,54 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { cn } from '@/lib/utils';
+import { CategoryBlocks } from '@/components/CategoryBlocks';
 
-export function CategoryFilter({ categories }: { categories: string[] }) {
+/** Smaller than Overview's: this is a sidebar control, not the page's subject. */
+const MAX_SIZE = 96;
+const MIN_SIZE = 44;
+
+export function CategoryFilter({ categories }: { categories: { name: string; value: number }[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const current = searchParams.get('category') || 'all';
+  const current = searchParams.get('category');
 
-  function select(value: string) {
+  function select(value: string | null) {
     const params = new URLSearchParams(searchParams.toString());
-    if (value === 'all') {
-      params.delete('category');
-    } else {
-      params.set('category', value);
-    }
+    if (value) params.set('category', value);
+    else params.delete('category');
     router.push(`?${params.toString()}`);
   }
 
-  return (
-    <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-6 px-6">
-      <Pill active={current === 'all'} onClick={() => select('all')}>All</Pill>
-      {categories.map((c) => (
-        <Pill key={c} active={current === c} onClick={() => select(c)}>
-          {c}
-        </Pill>
-      ))}
-    </div>
-  );
-}
+  if (categories.length === 0) {
+    return (
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-faint">
+        No spending this period
+      </p>
+    );
+  }
 
-function Pill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'shrink-0 h-8 px-4 rounded-full text-[10px] font-bold uppercase tracking-widest transition-colors',
-        active ? 'bg-ink text-paper' : 'bg-sand text-ink-soft hover:bg-sand/70'
+    <div className="space-y-3">
+      {/* Wraps. The old strip was flex + overflow-x-auto + no-scrollbar inside a
+          15rem column, so everything past the second pill was invisible and
+          unreachable, with nothing on screen to say more existed. */}
+      <CategoryBlocks
+        data={categories}
+        maxSize={MAX_SIZE}
+        minSize={MIN_SIZE}
+        selected={current}
+        onSelect={select}
+        labelOutside
+      />
+      {current && (
+        <button
+          type="button"
+          onClick={() => select(null)}
+          className="text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink transition-colors"
+        >
+          Clear category
+        </button>
       )}
-    >
-      {children}
-    </button>
+    </div>
   );
 }
