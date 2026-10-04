@@ -32,9 +32,12 @@ interface SwipeableTransactionRowProps {
   /** Balance standing after this entry. Shown only on an account's own
    *  ledger — across accounts a running balance means nothing. */
   balanceAfter?: number;
+  /** 0–1 against the largest amount on screen. A hairline under the merchant
+   *  name, so magnitude reads without the amount type changing size. */
+  proportion?: number | null;
 }
 
-export function SwipeableTransactionRow({ transaction, onDeleted, balanceAfter }: SwipeableTransactionRowProps) {
+export function SwipeableTransactionRow({ transaction, onDeleted, balanceAfter, proportion }: SwipeableTransactionRowProps) {
   const router = useRouter();
   const here = useHere();
   const [offset, setOffset] = useState(0);
@@ -127,6 +130,16 @@ export function SwipeableTransactionRow({ transaction, onDeleted, balanceAfter }
               <span className="shrink-0 tabular-nums">· {formatSignedCurrency(balanceAfter)}</span>
             )}
           </span>
+          {proportion != null && (
+            <span
+              aria-hidden
+              className="block h-[2px] rounded-full mt-1.5 transition-[width]"
+              style={{
+                width: `${Math.max(2, proportion * 100)}%`,
+                background: proportion >= 1 ? 'var(--accent)' : 'var(--ink)',
+              }}
+            />
+          )}
         </div>
         <span className="text-base font-bold tabular-nums shrink-0 text-ink">
           {sign(transaction.type)}{formatCurrency(transaction.amount)}
