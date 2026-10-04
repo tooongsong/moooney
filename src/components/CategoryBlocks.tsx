@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'motion/react';
-import { formatCurrency } from '@/lib/utils';
+import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 
 interface CategoryBlocksProps {
   data: { name: string; value: number }[];
@@ -17,6 +17,9 @@ interface CategoryBlocksProps {
 
 const MAX_SHOWN = 5;
 const ORGANIC_RADIUS = '48% 52% 50% 50% / 52% 48% 52% 48%';
+/** A circle's inscribed square: side = diameter / √2. Text wider than this
+ *  reaches past the curve even though it fits the bounding box. */
+const INSCRIBED = 0.707;
 
 export function CategoryBlocks({
   data,
@@ -40,19 +43,27 @@ export function CategoryBlocks({
   return (
     <div className="flex flex-wrap items-end gap-4">
       {top.map((entry, i) => {
-        const size = max > 0 ? minSize + (entry.value / max) * (maxSize - minSize) : minSize;
+        // A circle is read by its area, so diameter has to track the square
+        // root of the value. Scaling diameter directly makes area grow with
+        // the square of the value: the leader balloons and everything behind
+        // it collapses into one indistinguishable size. On a real month that
+        // left ranks 2–5 separated by 5.0, 2.4 and 0.1 px.
+        const size = max > 0
+          ? minSize + Math.sqrt(entry.value / max) * (maxSize - minSize)
+          : minSize;
         // With no selection the largest circle leads, as it always has. Once
         // something is selected the accent follows it instead — two accented
         // shapes would leave neither of them emphasised.
         const isAccent = selected === null ? i === 0 : selected === entry.name;
         const isSelected = selected === entry.name;
+        const inner = Math.floor(size * INSCRIBED);
 
         const circle = (
           <motion.div
             initial={{ scale: 0.85, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: 'spring', stiffness: 280, damping: 26, delay: i * 0.04 }}
-            className="flex flex-col items-center justify-center text-center shrink-0 px-2"
+            className="flex flex-col items-center justify-center text-center shrink-0"
             style={{
               width: size,
               height: size,
@@ -71,13 +82,25 @@ export function CategoryBlocks({
             }}
           >
             {!labelOutside && (
-              <span className={`text-[8px] font-bold uppercase tracking-widest truncate max-w-full ${isAccent ? 'text-white/80' : 'text-ink-faint'}`}>
+              <span
+                className={`font-bold uppercase tracking-widest text-center leading-tight ${isAccent ? 'text-white/80' : 'text-ink-faint'}`}
+                style={{ fontSize: 8, maxWidth: inner, overflowWrap: 'break-word' }}
+              >
                 {entry.name}
               </span>
             )}
-            <span className={`text-sm font-bold tabular-nums ${isAccent ? 'text-white' : 'text-ink'}`}>
-              {formatCurrency(entry.value)}
-            </span>
+            {/* The circle's diameter comes from the value's share, its text
+                width from the value's digit count — nothing ties the two
+                together, so a small circle can easily hold a long number.
+                ResponsiveAmount measures and shrinks to fit; it never cuts. */}
+            <ResponsiveAmount
+              value={entry.value}
+              baseSize={Math.round(size * 0.16)}
+              minSize={9}
+              style={{ width: inner }}
+              className="text-center leading-none"
+              spanClassName={isAccent ? 'text-white' : 'text-ink'}
+            />
           </motion.div>
         );
 
