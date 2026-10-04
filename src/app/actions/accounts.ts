@@ -12,7 +12,7 @@ import { BALANCE_ADJUSTMENT_TYPE, BALANCE_ADJUSTMENT_CATEGORY } from '@/lib/cate
 import { createClient } from '@/lib/supabase/server';
 import { nowPartsIn, monthRange, todayIn, safeTimeZone, type CalendarDate } from '@/lib/dates';
 import { runningBalances } from '@/lib/ledger';
-import { or, desc, isNull } from 'drizzle-orm';
+import { or, desc, isNull, gte, lte } from 'drizzle-orm';
 
 async function getUser() {
   const supabase = await createClient();
@@ -324,5 +324,45 @@ export async function getAccountLedger(accountId: string): Promise<AccountLedger
     opening: toNum(account.startingBalance, 'startingBalance'),
     firstEntryDate: oldestFirst[0]?.date ?? null,
     entries: withBalances.reverse() as AccountLedgerEntry[],
+  };
+}
+
+/**
+ * This month's in and out across every account, for the reconciliation panel
+ * before one is picked — so the page says something before the first click.
+ */
+export async function getMonthFlowAcrossAccounts(): Promise<{
+  monthIn: number;
+  monthOut: number;
+  label: string;
+}> {
+  const user = await getUser();
+  const tz = safeTimeZone(user.user_metadata?.timezone as string | undefined);
+  const { year, month } = nowPartsIn(tz);
+  const [start, end] = monthRange(year, month);
+
+  const rows = await db.query.transactions.findMany({
+    where: and(
+      eq(transactions.userId, user.id),
+      gte(transactions.date, start),
+      lte(transactions.date, end),
+    ),
+    columns: { type: true, amount: true },
+  });
+
+  let monthIn = 0;
+  let monthOut = 0;
+  for (const r of rows) {
+    const amt = Number(r.amount) || 0;
+    if (r.type === 'income' || r.type === 'refund') monthIn += amt;
+    else if (r.type === 'expense') monthOut += amt;
+  }
+
+  return {
+    monthIn,
+    monthOut,
+    label: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+      .format(new Date(Date.UTC(year, month - 1, 1)))
+      .toUpperCase(),
   };
 }
