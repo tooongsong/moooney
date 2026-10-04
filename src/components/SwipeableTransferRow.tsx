@@ -19,9 +19,6 @@ interface SwipeableTransferRowProps {
   /** Balance standing after this entry. Shown only on an account's own
    *  ledger — across accounts a running balance means nothing. */
   balanceAfter?: number;
-  /** 0–1 against the largest amount on screen. A hairline under the merchant
-   *  name, so magnitude reads without the amount type changing size. */
-  proportion?: number | null;
 }
 
 /** The location to come back to: this page, with whatever filters are on it. */
@@ -32,7 +29,7 @@ function useHere(): string {
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-export function SwipeableTransferRow({ transfer, onDeleted, balanceAfter, proportion }: SwipeableTransferRowProps) {
+export function SwipeableTransferRow({ transfer, onDeleted, balanceAfter }: SwipeableTransferRowProps) {
   const router = useRouter();
   const here = useHere();
   const [offset, setOffset] = useState(0);
@@ -121,16 +118,6 @@ export function SwipeableTransferRow({ transfer, onDeleted, balanceAfter, propor
                 <span className="shrink-0 tabular-nums">· {formatSignedCurrency(balanceAfter)}</span>
               )}
             </span>
-            {proportion != null && (
-              <span
-                aria-hidden
-                className="block h-[2px] rounded-full mt-1.5 transition-[width]"
-                style={{
-                  width: `${Math.max(2, proportion * 100)}%`,
-                  background: proportion >= 1 ? 'var(--accent)' : 'var(--ink)',
-                }}
-              />
-            )}
           </div>
         </div>
         <span className="text-base font-bold tabular-nums shrink-0 text-ink">
