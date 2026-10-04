@@ -51,3 +51,6 @@ next-env.d.ts
 # next-pwa build artifacts
 /public/sw.js
 /public/workbox-*.js
+
+# git worktrees for feature branches
+/.claude/worktrees
