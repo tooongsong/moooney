@@ -6,7 +6,7 @@ import { db } from '@/db';
 import { transactions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
 import { monthRange, yearRange, daysInMonth, monthOf, dayOf, yearOf, nowPartsIn, safeTimeZone } from '@/lib/dates';
-import { aggregateTransactions, type AggregateInput } from '@/lib/spendingAggregate';
+import { aggregateTransactions, trailingMonths, type AggregateInput, type MonthBucket } from '@/lib/spendingAggregate';
 import { getAccountBalances } from './accounts';
 import { computeNetWorth } from '@/lib/accountTypes';
 
@@ -211,4 +211,44 @@ export async function getAvailableYears(): Promise<number[]> {
   });
   const years = new Set(rows.map((r) => yearOf(r.date)));
   return Array.from(years).sort((a, b) => a - b);
+}
+
+/**
+ * The trailing-N-month trend behind the overview's default right panel. The
+ * window ends at the user's current month, not the server's — on a UTC host
+ * the last few hours of a Pacific month would otherwise land in the next one.
+ */
+export async function getTrailingTrend(
+  months = 12,
+): Promise<{ buckets: MonthBucket[]; average: number; peak: number }> {
+  const user = await getUser();
+  const tz = safeTimeZone(user.user_metadata?.timezone as string | undefined);
+  const { year, month } = nowPartsIn(tz);
+
+  const first = trailingMonths([], year, month, months)[0];
+  const [windowStart] = monthRange(first.year, first.month);
+  const [, windowEnd] = monthRange(year, month);
+
+  const rows = await db.query.transactions.findMany({
+    where: and(
+      eq(transactions.userId, user.id),
+      gte(transactions.date, windowStart),
+      lte(transactions.date, windowEnd),
+    ),
+    columns: { type: true, amount: true, category: true, date: true },
+  });
+
+  const buckets = trailingMonths(
+    rows.map((r) => ({ type: r.type, amount: Number(r.amount) || 0, category: r.category, date: r.date })),
+    year,
+    month,
+    months,
+  );
+
+  const spends = buckets.map((b) => b.spend);
+  return {
+    buckets,
+    average: spends.reduce((a, b) => a + b, 0) / Math.max(1, spends.length),
+    peak: Math.max(0, ...spends),
+  };
 }
