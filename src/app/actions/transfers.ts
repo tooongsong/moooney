@@ -1,7 +1,7 @@
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, asc, desc, eq, gte, isNull, like, lte, or } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, ilike, lte, or } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
@@ -162,9 +162,9 @@ export async function listTransfers({
         : undefined,
       query
         ? or(
-            like(transfers.fromAccount, `%${query}%`),
-            like(transfers.toAccount,   `%${query}%`),
-            like(transfers.note,         `%${query}%`),
+            ilike(transfers.fromAccount, `%${query}%`),
+            ilike(transfers.toAccount,   `%${query}%`),
+            ilike(transfers.note,         `%${query}%`),
           )
         : undefined,
     ),

@@ -1,7 +1,7 @@
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, desc, eq, gte, inArray, isNull, lte, like, ne, or } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, ilike, ne, or } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
@@ -402,7 +402,10 @@ export async function listTransactions({
       dateFilter,
       category ? eq(transactions.category, category) : undefined,
       account ? eq(transactions.paymentMethod, account) : undefined,
-      query ? or(like(transactions.merchant, `%${query}%`), like(transactions.description, `%${query}%`)) : undefined,
+      // ilike, not like: Postgres LIKE is case-sensitive, and merchant names
+      // arrive in whatever case the receipt used — "Tesla Supercharger US" and
+      // "TESLA SUPERCHARGER US" both exist. Typing "tesla" matched neither.
+      query ? or(ilike(transactions.merchant, `%${query}%`), ilike(transactions.description, `%${query}%`)) : undefined,
       includeAdjustments ? undefined : ne(transactions.type, BALANCE_ADJUSTMENT_TYPE),
     ),
     orderBy: [desc(transactions.date), desc(transactions.createdAt)],
