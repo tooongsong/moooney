@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { aggregateTransactions, trailingMonths } from './spendingAggregate.ts';
+import { aggregateTransactions, trailingMonths, categoryBreakdown } from './spendingAggregate.ts';
 
 test('expense adds to spend and category totals', () => {
   const r = aggregateTransactions([{ type: 'expense', amount: 50, category: 'Dining' }]);
@@ -108,4 +108,38 @@ test('trailingMonths applies the same type rules as aggregateTransactions', () =
     { date: '2026-09-04', amount: 7, type: 'balance_adjustment', category: 'Other' },
   ];
   assert.equal(trailingMonths(rows, 2026, 9, 1)[0].spend, 70);
+});
+
+// ── categoryBreakdown — the numbers behind the selected-category panel ───────
+
+const d = (date: string, amount: number, category: string, type = 'expense') =>
+  ({ date, amount, category, type });
+
+test('categoryBreakdown totals only the named category', () => {
+  const rows = [d('2026-09-01', 100, 'Food'), d('2026-09-02', 40, 'Transit'), d('2026-09-03', 60, 'Food')];
+  const out = categoryBreakdown(rows, 'Food', 30, '2026-09-01');
+  assert.equal(out.total, 160);
+  assert.equal(out.count, 2);
+});
+
+test('categoryBreakdown share is the fraction of total period spend', () => {
+  const rows = [d('2026-09-01', 75, 'Food'), d('2026-09-02', 25, 'Transit')];
+  assert.equal(categoryBreakdown(rows, 'Food', 30, '2026-09-01').share, 0.75);
+});
+
+test('categoryBreakdown share is 0 when the period has no spend', () => {
+  assert.equal(categoryBreakdown([], 'Food', 30, '2026-09-01').share, 0);
+});
+
+test('categoryBreakdown returns one entry per day of the period', () => {
+  const out = categoryBreakdown([d('2026-09-05', 10, 'Food')], 'Food', 30, '2026-09-01');
+  assert.equal(out.daily.length, 30);
+  assert.equal(out.daily[0].day, 1);
+  assert.equal(out.daily[4].spend, 10);
+  assert.equal(out.daily[29].spend, 0);
+});
+
+test('categoryBreakdown applies refunds to the category it names', () => {
+  const rows = [d('2026-09-01', 100, 'Food'), d('2026-09-02', 30, 'Food', 'refund')];
+  assert.equal(categoryBreakdown(rows, 'Food', 30, '2026-09-01').total, 70);
 });

@@ -89,3 +89,49 @@ export function trailingMonths(
 
   return buckets;
 }
+
+export interface CategoryBreakdown {
+  total: number;
+  /** Fraction of the period's total spend, 0–1. */
+  share: number;
+  /** Number of transactions counted, so an empty drill-down can say so. */
+  count: number;
+  daily: { day: number; spend: number }[];
+}
+
+/**
+ * One category's slice of a period: its total, its share of everything spent,
+ * and a per-day series for the drill-down chart.
+ *
+ * `firstDay` is the period's first calendar date, used to map a date onto a
+ * day index — the period does not necessarily start on the 1st.
+ */
+export function categoryBreakdown(
+  rows: DatedInput[],
+  category: string,
+  daysInPeriod: number,
+  firstDay: string,
+): CategoryBreakdown {
+  const mine = rows.filter((r) => r.category === category);
+  const total = aggregateTransactions(mine).spend;
+  const periodSpend = aggregateTransactions(rows).spend;
+  const offset = Number(firstDay.slice(8, 10));
+
+  const byDay = new Map<number, DatedInput[]>();
+  for (const r of mine) {
+    const day = Number(r.date.slice(8, 10)) - offset + 1;
+    if (day < 1 || day > daysInPeriod) continue;
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day)!.push(r);
+  }
+
+  return {
+    total,
+    share: periodSpend > 0 ? total / periodSpend : 0,
+    count: mine.length,
+    daily: Array.from({ length: daysInPeriod }, (_, i) => ({
+      day: i + 1,
+      spend: aggregateTransactions(byDay.get(i + 1) ?? []).spend,
+    })),
+  };
+}
