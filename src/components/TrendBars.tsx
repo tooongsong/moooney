@@ -3,8 +3,6 @@
 import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 
-const CHART_HEIGHT = 128; // px
-
 export interface TrendBarItem {
   key: string;
   value: number;
@@ -14,9 +12,11 @@ export interface TrendBarItem {
 interface TrendBarsProps {
   items: TrendBarItem[];
   labelEvery?: number;
+  /** Desktop panels use a taller chart; the phone keeps 128. */
+  height?: number;
 }
 
-export function TrendBars({ items, labelEvery = 1 }: TrendBarsProps) {
+export function TrendBars({ items, labelEvery = 1, height = 128 }: TrendBarsProps) {
   const router = useRouter();
 
   if (items.length === 0) return null;
@@ -27,9 +27,9 @@ export function TrendBars({ items, labelEvery = 1 }: TrendBarsProps) {
   const gapClass = items.length > 20 ? 'gap-0.5' : items.length > 6 ? 'gap-1.5' : 'gap-3';
 
   return (
-    <div className={`flex items-end ${gapClass}`} style={{ height: CHART_HEIGHT + 20 }}>
+    <div className={`flex items-end ${gapClass}`} style={{ height: height + 20 }}>
       {items.map((item, i) => {
-        const heightPx = item.value > 0 ? Math.max(6, (item.value / max) * CHART_HEIGHT) : 3;
+        const heightPx = item.value > 0 ? Math.max(6, (item.value / max) * height) : 3;
         const isMax = hasSpend && i === maxIndex;
         const Tag = item.href ? 'button' : 'div';
 
@@ -38,7 +38,7 @@ export function TrendBars({ items, labelEvery = 1 }: TrendBarsProps) {
             key={item.key}
             {...(item.href ? { type: 'button' as const, onClick: () => router.push(item.href!) } : {})}
             className="flex-1 flex flex-col items-center justify-end gap-1.5 active:scale-[0.97] transition-transform"
-            style={{ height: CHART_HEIGHT + 20 }}
+            style={{ height: height + 20 }}
           >
             <motion.div
               className="w-full rounded-t-full"
