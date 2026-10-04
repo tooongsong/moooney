@@ -61,7 +61,13 @@ export function CategoryBlocks({
               // --sand on --paper is a six-value difference, so an unaccented
               // circle had no visible edge at all. Size is the data in this
               // chart, and a shape you cannot see carries none of it.
-              border: isAccent ? undefined : '1px solid var(--line)',
+              //
+              // Mixed from --ink rather than --line so the edge flips with the
+              // scheme: --line sits within six values of --sand in dark mode,
+              // where it would draw nothing.
+              border: isAccent
+                ? undefined
+                : '1px solid color-mix(in srgb, var(--ink) 18%, transparent)',
             }}
           >
             {!labelOutside && (
