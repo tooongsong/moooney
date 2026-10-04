@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { notFound } from 'next/navigation';
 import { CategoryBlocks } from '@/components/CategoryBlocks';
+import { MonthPicker } from '@/components/MonthPicker';
 import { TrendPanel } from '@/components/TrendPanel';
 import { CategoryDetailPanel } from '@/components/CategoryDetailPanel';
 import { CATEGORY_TOTALS, TREND, DETAIL } from './fixtures';
@@ -17,6 +18,7 @@ import { CATEGORY_TOTALS, TREND, DETAIL } from './fixtures';
 
 export default function PreviewPage() {
   const [selected, setSelected] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   if (process.env.NODE_ENV !== 'development') notFound();
 
   return (
@@ -51,6 +53,23 @@ export default function PreviewPage() {
         <div className="max-w-[46rem]">
           <CategoryDetailPanel detail={{ ...DETAIL, total: 0, share: 0, count: 0, transactions: [] }} />
         </div>
+      </Section>
+
+      <Section title="MonthPicker — centred above lg, bottom sheet below it">
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          className="h-9 px-5 rounded-full bg-ink text-paper text-[10px] font-bold uppercase tracking-widest"
+        >
+          Open month picker
+        </button>
+        <MonthPicker
+          open={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          selectedYear={2026}
+          selectedMonth={9}
+          onSelect={() => setPickerOpen(false)}
+        />
       </Section>
 
       <Section title="CategoryBlocks — empty state">
