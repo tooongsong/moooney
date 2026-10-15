@@ -106,6 +106,21 @@ test('an ended subscription with no ended_on falls back to today rather than run
   assert.deepEqual(out, ['2026-08-05', '2026-09-05', '2026-10-05']);
 });
 
+test('a paused subscription still stops at the end of a window that closes before today', () => {
+  // Without this, `horizon` could ignore its window entirely and return the
+  // status cut-off: every other status test asks for a range running past
+  // today, so none of them would notice.
+  const out = occurrencesBetween(
+    sub({ status: 'paused' }), '2026-01-01', '2026-03-31', TODAY);
+  assert.deepEqual(out, ['2026-01-15', '2026-02-15', '2026-03-15']);
+});
+
+test('an ended subscription still stops at the end of a window that closes before ended_on', () => {
+  const out = occurrencesBetween(
+    sub({ status: 'ended', endedOn: '2026-09-30' }), '2026-01-01', '2026-03-31', TODAY);
+  assert.deepEqual(out, ['2026-01-15', '2026-02-15', '2026-03-15']);
+});
+
 // ── Period keys: what makes a moved billing day safe ────────────────────────
 
 test('a period key is the month for monthly, the year for yearly, the date for weekly', () => {

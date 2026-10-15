@@ -164,15 +164,23 @@ test('addDays moves by whole days and crosses a month boundary', () => {
 });
 
 test('addDays is immune to the host timezone, including across a DST jump', () => {
-  // 2026-03-08 is the US spring-forward. A local-time implementation loses an
-  // hour here and can land on the wrong day.
+  // These two dates are chosen to fail a local-midnight-plus-24-hours
+  // implementation, which is the mistake this test exists to catch.
+  // 2026-11-01 in US Pacific is 25 hours long, so +24h lands back on the 1st;
+  // 2026-03-08 is 23 hours, so stepping back a day from the 9th overshoots to
+  // the 7th. A spring-forward *forward* step would pass either way, which is
+  // why it is not the case under test.
   const prev = process.env.TZ;
   process.env.TZ = 'America/Los_Angeles';
   try {
+    assert.equal(addDays('2026-11-01', 1), '2026-11-02');
+    assert.equal(addDays('2026-03-09', -1), '2026-03-08');
     assert.equal(addDays('2026-03-07', 1), '2026-03-08');
-    assert.equal(addDays('2026-03-08', 1), '2026-03-09');
   } finally {
-    process.env.TZ = prev;
+    // delete, not assign: `process.env.TZ = undefined` stores the string
+    // "undefined" and leaves every later test in a nonexistent zone.
+    if (prev === undefined) delete process.env.TZ;
+    else process.env.TZ = prev;
   }
 });
 
