@@ -161,7 +161,7 @@ Expected: FAIL — `SyntaxError: The requested module './dates.ts' does not prov
 
 - [ ] **Step 5: Add the date helpers**
 
-In `src/lib/dates.ts`, rename the private `format` function to `makeCalendarDate` and export it, updating its four call sites inside that file (`todayIn`, `monthRange` ×2, `yearRange` ×2):
+In `src/lib/dates.ts`, rename the private `format` function to `makeCalendarDate` and export it, updating its five call sites inside that file (`todayIn` ×1, `monthRange` ×2, `yearRange` ×2):
 
 ```ts
 /** Build a calendar date from its parts. Month is 1-based. Zero-padded, so
@@ -1475,11 +1475,12 @@ export default function DevPreview() {
     <div className="d-max-lg max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
       <section className="pt-3 pb-5">
         <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-3">Subscriptions</p>
-        <ResponsiveAmount value={1446.89} baseSize={68} minSize={28} className="mb-3" split />
+        {/* The four active fixtures: 11.99 + 2.99 + 1288.88/12 + 24.5 × (365.25/7/12). */}
+        <ResponsiveAmount value={228.92} baseSize={68} minSize={28} className="mb-3" split />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
           <span className="text-ink-faint">Monthly equivalent</span>
           <span className="text-line">·</span>
-          <span className="text-ink-faint">Annual <span className="font-semibold text-ink tabular-nums">{formatCurrency(17362.68)}</span></span>
+          <span className="text-ink-faint">Annual <span className="font-semibold text-ink tabular-nums">{formatCurrency(2747.02)}</span></span>
           <span className="text-line">·</span>
           <span className="text-ink-faint"><span className="font-semibold text-ink tabular-nums">4</span> active</span>
         </div>
@@ -2551,8 +2552,9 @@ import { SubscriptionCalendar } from '@/components/SubscriptionCalendar';
 import type { MonthOccurrences } from '@/app/actions/subscriptions';
 
 const MONTH: MonthOccurrences = {
-  monthKey: '2026-10', year: 2026, month: 10, today: TODAY, expected: 54.47,
-  remaining: 39.49, isPastMonth: false,
+  // 34.99 on the 5th + 11.99 + 24.50 + 2.99; remaining counts from the 15th.
+  monthKey: '2026-10', year: 2026, month: 10, today: TODAY, expected: 74.47,
+  remaining: 39.48, isPastMonth: false,
   byDay: {
     '2026-10-05': [
       { subscriptionId: '5', name: 'Figma', emoji: null, amount: 15, cycle: 'monthly',
@@ -3100,7 +3102,9 @@ Expected: the transaction count and both sums are **identical**. Home, Overview 
 - [ ] **Step 3: Confirm the totals arithmetic by hand**
 
 With $7 weekly, $70 monthly and $700 yearly active, the monthly equivalent is
-`7 × 365.25 / 7 / 12 + 70 + 700 / 12` = `30.44 + 70 + 58.33` = **$158.77**, and the annual equivalent is **$1,905.24**. The page must show these to the cent.
+`7 × 365.25 / 7 / 12 + 70 + 700 / 12` = `30.4375 + 70 + 58.3333` = **$158.77**, and the annual
+equivalent is **$1,905.25** — twelve times the *unrounded* sum, which is what the
+code does, not twelve times $158.77. The page must show these to the cent.
 
 Pause the weekly one. Monthly equivalent becomes **$128.33**, annual **$1,540.00**, active count 2.
 
