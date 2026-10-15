@@ -72,7 +72,7 @@ The heart of the feature and the only part that is hard to get right. Pure funct
 - Produces:
   - `type SubscriptionCycle = 'weekly' | 'monthly' | 'yearly'`
   - `type SubscriptionStatus = 'active' | 'paused' | 'ended'`
-  - `interface Schedulable { anchorDate: CalendarDate; cycle: SubscriptionCycle; status: SubscriptionStatus; endedOn: CalendarDate | null }`
+  - `interface Schedulable { anchorDate: CalendarDate; cycle: SubscriptionCycle; status: SubscriptionStatus; stoppedOn: CalendarDate | null }`
   - `occurrencesBetween(sub: Schedulable, from: CalendarDate, to: CalendarDate, today: CalendarDate): CalendarDate[]`
   - `nextOccurrence(sub: Schedulable, from: CalendarDate, today: CalendarDate): CalendarDate | null`
   - `periodKeyOf(cycle: SubscriptionCycle, date: CalendarDate): string`
@@ -231,7 +231,7 @@ import {
 const TODAY = '2026-10-15';
 
 function sub(over: Partial<Schedulable> = {}): Schedulable {
-  return { anchorDate: '2026-01-15', cycle: 'monthly', status: 'active', endedOn: null, ...over };
+  return { anchorDate: '2026-01-15', cycle: 'monthly', status: 'active', stoppedOn: null, ...over };
 }
 
 // ── Monthly, and the month-end clamp that makes a stored cursor impossible ──
@@ -284,6 +284,15 @@ test('a weekly window that opens mid-cycle starts at the next occurrence, not th
   assert.deepEqual(out, ['2026-01-08', '2026-01-15']);
 });
 
+test('a weekly window opening 2 days into the cycle does not emit the occurrence behind it', () => {
+  // A 4-day remainder is the one case where rounding to nearest happens to
+  // agree with rounding up. Remainders of 1 to 3 days are where ceil matters,
+  // and getting it wrong emits a date from before the window opened.
+  const out = occurrencesBetween(
+    sub({ anchorDate: '2026-01-01', cycle: 'weekly' }), '2026-01-03', '2026-01-20', TODAY);
+  assert.deepEqual(out, ['2026-01-08', '2026-01-15']);
+});
+
 // ── Window edges ────────────────────────────────────────────────────────────
 
 test('a window opening before the anchor starts at the anchor, not before it', () => {
@@ -307,20 +316,29 @@ test('an active subscription keeps going into the future', () => {
   assert.deepEqual(out, ['2026-10-05', '2026-11-05', '2026-12-05', '2027-01-05']);
 });
 
-test('a paused subscription stops at today — the past happened, the future is suspended', () => {
+test('a paused subscription stops on the day it was paused', () => {
+  // The whole point of storing the date: without it this runs to today and
+  // keeps growing, inventing a charge for every month it stays paused.
+  const out = occurrencesBetween(
+    sub({ anchorDate: '2026-05-05', status: 'paused', stoppedOn: '2026-07-20' }),
+    '2026-01-01', '2027-01-31', TODAY);
+  assert.deepEqual(out, ['2026-05-05', '2026-06-05', '2026-07-05']);
+});
+
+test('a paused row with no stop date falls back to today rather than running forever', () => {
   const out = occurrencesBetween(
     sub({ anchorDate: '2026-08-05', status: 'paused' }), '2026-01-01', '2027-01-31', TODAY);
   assert.deepEqual(out, ['2026-08-05', '2026-09-05', '2026-10-05']);
 });
 
-test('an ended subscription stops at ended_on', () => {
+test('an ended subscription stops at stopped_on', () => {
   const out = occurrencesBetween(
-    sub({ anchorDate: '2026-05-05', status: 'ended', endedOn: '2026-07-31' }),
+    sub({ anchorDate: '2026-05-05', status: 'ended', stoppedOn: '2026-07-31' }),
     '2026-01-01', '2027-01-31', TODAY);
   assert.deepEqual(out, ['2026-05-05', '2026-06-05', '2026-07-05']);
 });
 
-test('an ended subscription with no ended_on falls back to today rather than running forever', () => {
+test('an ended subscription with no stopped_on falls back to today rather than running forever', () => {
   const out = occurrencesBetween(
     sub({ anchorDate: '2026-08-05', status: 'ended' }), '2026-01-01', '2027-01-31', TODAY);
   assert.deepEqual(out, ['2026-08-05', '2026-09-05', '2026-10-05']);
@@ -335,10 +353,18 @@ test('a paused subscription still stops at the end of a window that closes befor
   assert.deepEqual(out, ['2026-01-15', '2026-02-15', '2026-03-15']);
 });
 
-test('an ended subscription still stops at the end of a window that closes before ended_on', () => {
+test('an ended subscription still stops at the end of a window that closes before stopped_on', () => {
   const out = occurrencesBetween(
-    sub({ status: 'ended', endedOn: '2026-09-30' }), '2026-01-01', '2026-03-31', TODAY);
+    sub({ status: 'ended', stoppedOn: '2026-09-30' }), '2026-01-01', '2026-03-31', TODAY);
   assert.deepEqual(out, ['2026-01-15', '2026-02-15', '2026-03-15']);
+});
+
+test('the stop date is inclusive — a charge due on the day it stopped still counts', () => {
+  // Make the bound exclusive and 07-15 disappears with nothing else noticing.
+  const out = occurrencesBetween(
+    sub({ anchorDate: '2026-06-15', status: 'ended', stoppedOn: '2026-07-15' }),
+    '2026-01-01', '2026-12-31', TODAY);
+  assert.deepEqual(out, ['2026-06-15', '2026-07-15']);
 });
 
 // ── Period keys: what makes a moved billing day safe ────────────────────────
@@ -381,6 +407,15 @@ test('nextOccurrence on a yearly subscription reaches across the whole year', ()
     '2027-01-10');
 });
 
+test('a yearly subscription years into its life still finds its next payment', () => {
+  // Every other yearly test starts within a year of the anchor, where the
+  // `/ step` in kStart cannot matter. Drop that divisor and this returns null
+  // — "no next payment" for every yearly subscription over about 13 months old.
+  assert.equal(
+    nextOccurrence(sub({ anchorDate: '2023-06-01', cycle: 'yearly' }), '2026-10-15', TODAY),
+    '2027-06-01');
+});
+
 test('a paused subscription has no next payment, though its past occurrences remain', () => {
   assert.equal(nextOccurrence(sub({ status: 'paused' }), TODAY, TODAY), null);
   assert.deepEqual(
@@ -391,7 +426,7 @@ test('a paused subscription has no next payment, though its past occurrences rem
 
 test('an ended subscription has no next payment either', () => {
   assert.equal(
-    nextOccurrence(sub({ status: 'ended', endedOn: '2026-09-30' }), TODAY, TODAY), null);
+    nextOccurrence(sub({ status: 'ended', stoppedOn: '2026-09-30' }), TODAY, TODAY), null);
 });
 
 // ── Normalisation ───────────────────────────────────────────────────────────
@@ -454,16 +489,23 @@ export interface Schedulable {
   anchorDate: CalendarDate;
   cycle: SubscriptionCycle;
   status: SubscriptionStatus;
-  endedOn: CalendarDate | null;
+  stoppedOn: CalendarDate | null;
 }
 
 /** Where the series stops, given its status. `today` is the user's today. */
 function horizon(sub: Schedulable, to: CalendarDate, today: CalendarDate): CalendarDate {
   if (sub.status === 'active') return to;
-  // Paused suspends the future and keeps the past. Ended stops at the day it
-  // ended, or at today if that was never recorded — never at `to`, which would
-  // run an ended subscription forever.
-  const stop = sub.status === 'ended' ? (sub.endedOn ?? today) : today;
+  // Paused and ended ask the same question — when did this stop billing — so
+  // they share one date and one branch.
+  //
+  // Clamping a paused subscription at `today` instead would grow phantom
+  // occurrences for as long as it stayed paused: pause on 20 October, and by
+  // December the 5th of November and the 5th of December are in the past,
+  // unconfirmed, and entirely imaginary.
+  //
+  // Falling back to `today` covers a row that stopped before this column
+  // existed; never `to`, which would run a stopped subscription forever.
+  const stop = sub.stoppedOn ?? today;
   return stop < to ? stop : to;
 }
 
@@ -637,7 +679,7 @@ create table if not exists subscriptions (
   cycle             text not null default 'monthly',   -- weekly | monthly | yearly
   anchor_date       date not null,                     -- first payment, not row creation
   status            text not null default 'active',    -- active | paused | ended
-  ended_on          date,
+  stopped_on        date,                     -- the day billing stopped, paused or ended
   category          text,                              -- a name from getAllCategories()
   payment_method_id text references payment_methods(id),
   website           text,
@@ -713,7 +755,7 @@ export const subscriptions = pgTable('subscriptions', {
   // the passage of time, only by the user editing the first payment date.
   anchorDate:      date('anchor_date', { mode: 'string' }).notNull(),
   status:          text('status', { enum: ['active', 'paused', 'ended'] }).notNull().default('active'),
-  endedOn:         date('ended_on', { mode: 'string' }),
+  stoppedOn:       date('stopped_on', { mode: 'string' }),
   category:        text('category'),
   paymentMethodId: text('payment_method_id').references(() => paymentMethods.id),
   website:         text('website'),
@@ -826,7 +868,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 // nothing renders them.
 const SUB_COLUMNS = {
   id: true, name: true, emoji: true, amount: true, cycle: true,
-  anchorDate: true, status: true, endedOn: true, category: true,
+  anchorDate: true, status: true, stoppedOn: true, category: true,
   paymentMethodId: true, website: true, notes: true,
 } as const;
 
@@ -838,7 +880,7 @@ export interface SubscriptionRow {
   cycle: SubscriptionCycle;
   anchorDate: CalendarDate;
   status: SubscriptionStatus;
-  endedOn: CalendarDate | null;
+  stoppedOn: CalendarDate | null;
   category: string | null;
   paymentMethodId: string | null;
   website: string | null;
@@ -1029,9 +1071,11 @@ export async function setSubscriptionStatus(
   try {
     const res = await db
       .update(subscriptions)
-      // Ending records the day it ended, so past occurrences keep their place.
-      // Reactivating clears it, or the series would still stop at the old date.
-      .set({ status, endedOn: status === 'ended' ? today : null, updatedAt: new Date() })
+      // Pausing and ending both record the day billing stopped, which is what
+      // keeps a paused subscription from accruing an imaginary charge for
+      // every month it stays paused. Reactivating clears it, or the series
+      // would go on stopping at the old date.
+      .set({ status, stoppedOn: status === 'active' ? null : today, updatedAt: new Date() })
       .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, user.id)))
       .returning({ id: subscriptions.id });
     if (res.length === 0) return { success: false, error: 'Subscription not found' };
@@ -1080,14 +1124,14 @@ const sql = postgres(process.env.DATABASE_URL, { prepare: false });
 const [u] = await sql.unsafe(\"select user_id from payment_methods limit 1\").simple();
 await sql.unsafe(\`insert into subscriptions (id,user_id,name,amount,cycle,anchor_date)
   values ('plan-probe','\${u.user_id}','Probe',9.99,'monthly','2026-01-31')\`).simple();
-console.table(await sql.unsafe(\"select id,name,amount,cycle,anchor_date,status,ended_on from subscriptions where id='plan-probe'\").simple());
+console.table(await sql.unsafe(\"select id,name,amount,cycle,anchor_date,status,stopped_on from subscriptions where id='plan-probe'\").simple());
 await sql.unsafe(\"delete from subscriptions where id='plan-probe'\").simple();
 console.log('rows left:', (await sql.unsafe(\"select count(*) from subscriptions\").simple())[0].count);
 await sql.end();
 "
 ```
 
-Expected: one row with `amount: 9.99` (a number, not a string — the driver is configured to parse `numeric`), `anchor_date: '2026-01-31'` as a plain string with no time or zone, `status: 'active'`, `ended_on: null`. Then `rows left: 0`.
+Expected: one row with `amount: 9.99` (a number, not a string — the driver is configured to parse `numeric`), `anchor_date: '2026-01-31'` as a plain string with no time or zone, `status: 'active'`, `stopped_on: null`. Then `rows left: 0`.
 
 If `anchor_date` comes back as a `Date` or carries a time, the column type or the drizzle `mode: 'string'` is wrong — stop and fix it here. That exact mistake cost this project a day-early date bug across the whole app.
 
@@ -1344,11 +1388,11 @@ export function SubscriptionList({ items, today }: { items: ListItem[]; today: s
                 <span className="block truncate text-[11px] text-ink-faint">
                   {s.next
                     ? `${formatDate(s.next, { month: 'short', day: 'numeric' })} · ${relativeDayLabel(daysBetween(today, s.next))}`
-                    : s.status === 'ended'
-                      ? s.endedOn
-                        ? `Ended ${formatDate(s.endedOn, { month: 'short', day: 'numeric', year: 'numeric' })}`
-                        : 'Ended'
-                      : 'Paused'}
+                    : s.stoppedOn
+                      ? `${s.status === 'ended' ? 'Ended' : 'Paused'} ${formatDate(s.stoppedOn, { month: 'short', day: 'numeric', year: 'numeric' })}`
+                      : s.status === 'ended'
+                        ? 'Ended'
+                        : 'Paused'}
                 </span>
               </span>
               {/* shrink-0 on the amount, truncate on the name: the number is
@@ -1473,22 +1517,22 @@ const TODAY = '2026-10-15';
 
 const ITEMS: ListItem[] = [
   { id: '1', name: 'Spotify', emoji: '🎵', amount: 11.99, cycle: 'monthly', anchorDate: '2026-01-15',
-    status: 'active', endedOn: null, category: 'Entertainment', paymentMethodId: null, website: null,
+    status: 'active', stoppedOn: null, category: 'Entertainment', paymentMethodId: null, website: null,
     notes: null, next: '2026-10-15' },
   { id: '2', name: 'iCloud+ with a deliberately long product name', emoji: null, amount: 2.99,
-    cycle: 'monthly', anchorDate: '2026-01-31', status: 'active', endedOn: null, category: 'Bills',
+    cycle: 'monthly', anchorDate: '2026-01-31', status: 'active', stoppedOn: null, category: 'Bills',
     paymentMethodId: null, website: null, notes: null, next: '2026-10-31' },
   { id: '3', name: '网易云音乐', emoji: null, amount: 1288.88, cycle: 'yearly', anchorDate: '2026-03-09',
-    status: 'active', endedOn: null, category: 'Entertainment', paymentMethodId: null, website: null,
+    status: 'active', stoppedOn: null, category: 'Entertainment', paymentMethodId: null, website: null,
     notes: null, next: '2027-03-09' },
   { id: '4', name: 'Oatly delivery', emoji: '🥛', amount: 24.5, cycle: 'weekly', anchorDate: '2026-10-12',
-    status: 'active', endedOn: null, category: 'Groceries', paymentMethodId: null, website: null,
+    status: 'active', stoppedOn: null, category: 'Groceries', paymentMethodId: null, website: null,
     notes: null, next: '2026-10-19' },
   { id: '5', name: 'Figma', emoji: null, amount: 15, cycle: 'monthly', anchorDate: '2026-02-01',
-    status: 'paused', endedOn: null, category: 'Other', paymentMethodId: null, website: null,
+    status: 'paused', stoppedOn: null, category: 'Other', paymentMethodId: null, website: null,
     notes: null, next: null },
   { id: '6', name: 'Old gym', emoji: null, amount: 89, cycle: 'monthly', anchorDate: '2025-06-01',
-    status: 'ended', endedOn: '2026-08-31', category: 'Health', paymentMethodId: null, website: null,
+    status: 'ended', stoppedOn: '2026-08-31', category: 'Health', paymentMethodId: null, website: null,
     notes: null, next: null },
 ];
 
@@ -1999,7 +2043,7 @@ In your own signed-in browser at `http://localhost:3000/subscriptions`:
 3. **Edit** the amount to `13.99` and save. The hero monthly equivalent moves by exactly $2.00.
 4. **Pause** it. It leaves the active count, the hero figure drops to exclude it, the row reads PAUSED and shows no next date.
 5. **Activate** it again. Everything comes back.
-6. **End** it. `ended_on` is set to today — check: `select status, ended_on from subscriptions where name='Spotify'`.
+6. **End** it. `stopped_on` is set to today — check: `select status, stopped_on from subscriptions where name='Spotify'`. Pause one as well: `stopped_on` is recorded for that too, and switching back to Active nulls it.
 7. **Delete** it. Click once for "Really delete?", once more to delete. It is gone.
 8. Confirm nothing leaked: `select count(*) from subscriptions` is back to 0.
 

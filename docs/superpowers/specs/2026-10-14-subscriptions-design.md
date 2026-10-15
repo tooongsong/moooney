@@ -97,7 +97,7 @@ subscriptions
   cycle           text not null            -- 'weekly' | 'monthly' | 'yearly'
   anchor_date     date not null            -- the billing anchor: first payment, not record creation
   status          text not null default 'active'   -- 'active' | 'paused' | 'ended'
-  ended_on        date                     -- set when status becomes 'ended'
+  stopped_on      date                     -- the day billing stopped, paused or ended
   category        text                     -- reuses the existing category names
   payment_method_id text references payment_methods(id)
   website         text
@@ -163,9 +163,21 @@ occurrencesBetween(sub, from, to): CalendarDate[]
 Status filters the result:
 
 - **active** — every occurrence, past and future.
-- **paused** — occurrences up to today only. The past happened; the future is
-  suspended. Resuming simply stops filtering.
-- **ended** — occurrences up to `ended_on`.
+- **paused** and **ended** — occurrences up to `stopped_on`, the day billing
+  stopped. The past happened; the future is suspended.
+
+Pausing and ending are the same question — when did this stop billing — so
+they share one date and one branch. Clamping a paused subscription at *today*
+instead, which is what this document first said, grows phantom occurrences for
+as long as it stays paused: pause on 20 October and by December the 5th of
+November and the 5th of December are in the past, unconfirmed and entirely
+imaginary.
+
+Resuming clears `stopped_on`. The ceiling, stated plainly: the months between a
+pause and a resume come back as past occurrences with nothing linked, so they
+read Unconfirmed. One date cannot describe two intervals, and a table of
+intervals is a larger model than this feature has earned. A subscription paused
+and never resumed — the common case — is exact.
 
 The column is named for what it is. It is the billing anchor, not a note of
 when the row was created — `created_at` is that. The form asks for "First
