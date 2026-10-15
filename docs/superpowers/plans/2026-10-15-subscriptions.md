@@ -698,7 +698,7 @@ create table if not exists subscriptions (
   status            text not null default 'active',    -- active | paused | ended
   stopped_on        date,                     -- the day billing stopped, paused or ended
   category          text,                              -- a name from getAllCategories()
-  payment_method_id text references payment_methods(id),
+  payment_method_id text references payment_methods(id) on delete set null,
   website           text,
   notes             text,
   created_at        timestamptz not null default now(),
@@ -709,6 +709,32 @@ alter table subscriptions enable row level security;
 create policy "own subscriptions" on subscriptions for all using (auth.uid() = user_id);
 
 create index if not exists subscriptions_user_idx on subscriptions (user_id);
+
+-- The account link is `on delete set null` for the same reason as the one
+-- below: deleting an account must not take a subscription with it, and must
+-- not be blocked by one either. `deletePaymentMethod` hard-deletes an account
+-- that has no transactions, and the default NO ACTION would turn that into a
+-- raw foreign-key error the moment any subscription pointed at it.
+--
+-- Re-stated as an alter because the create above is `if not exists`, so a
+-- database that already has the table never sees the clause.
+do $$
+declare c text;
+begin
+  select conname into c
+    from pg_constraint
+   where conrelid = 'subscriptions'::regclass
+     and contype = 'f'
+     and conkey = array[(select attnum from pg_attribute
+                          where attrelid = 'subscriptions'::regclass
+                            and attname = 'payment_method_id')];
+  if c is not null and (select confdeltype from pg_constraint where conname = c) <> 'n' then
+    execute format('alter table subscriptions drop constraint %I', c);
+    execute format('alter table subscriptions add constraint %I
+                    foreign key (payment_method_id) references payment_methods(id)
+                    on delete set null', c);
+  end if;
+end $$;
 
 -- The payment link. `on delete set null`, not cascade: deleting a subscription
 -- must never delete a real expense — the money was still spent.
@@ -754,6 +780,19 @@ await sql.end();
 
 Expected: `subscriptions` with `rowsecurity: true`; policy `own subscriptions`; two columns, `subscription_id` (text, YES) and `subscription_period` (date, YES).
 
+Then check both foreign keys actually say SET NULL, because a default NO ACTION here is the difference between a subscription losing its account and an account becoming undeletable:
+
+```bash
+node --env-file=.env.local --input-type=module -e "
+import postgres from 'postgres';
+const sql = postgres(process.env.DATABASE_URL, { prepare: false });
+console.table(await sql.unsafe(\"select conrelid::regclass as tbl, conname, confdeltype from pg_constraint where contype='f' and (conrelid='subscriptions'::regclass or (conrelid='transactions'::regclass and conname like '%subscription%'))\").simple());
+await sql.end();
+"
+```
+
+Expected: `confdeltype` is `n` (SET NULL) for `subscriptions.payment_method_id` and for `transactions.subscription_id`.
+
 RLS without a policy denies everything, and a policy without RLS enforces nothing. Both lines must appear.
 
 - [ ] **Step 4: Add the drizzle table**
@@ -774,7 +813,8 @@ export const subscriptions = pgTable('subscriptions', {
   status:          text('status', { enum: ['active', 'paused', 'ended'] }).notNull().default('active'),
   stoppedOn:       date('stopped_on', { mode: 'string' }),
   category:        text('category'),
-  paymentMethodId: text('payment_method_id').references(() => paymentMethods.id),
+  paymentMethodId: text('payment_method_id')
+    .references(() => paymentMethods.id, { onDelete: 'set null' }),
   website:         text('website'),
   notes:           text('notes'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
