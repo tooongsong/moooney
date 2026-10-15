@@ -20,6 +20,29 @@ export const paymentMethods = pgTable('payment_methods', {
 
 export type PaymentMethod = typeof paymentMethods.$inferSelect;
 
+export const subscriptions = pgTable('subscriptions', {
+  id:              text('id').primaryKey(),
+  userId:          uuid('user_id').notNull(),
+  name:            text('name').notNull(),
+  emoji:           text('emoji'),
+  amount:          numeric('amount', { precision: 12, scale: 2 }).notNull().$type<number>(),
+  cycle:           text('cycle', { enum: ['weekly', 'monthly', 'yearly'] }).notNull().default('monthly'),
+  // The billing anchor. Occurrences derive from it; it is never rewritten by
+  // the passage of time, only by the user editing the first payment date.
+  anchorDate:      date('anchor_date', { mode: 'string' }).notNull(),
+  status:          text('status', { enum: ['active', 'paused', 'ended'] }).notNull().default('active'),
+  stoppedOn:       date('stopped_on', { mode: 'string' }),
+  category:        text('category'),
+  paymentMethodId: text('payment_method_id').references(() => paymentMethods.id),
+  website:         text('website'),
+  notes:           text('notes'),
+  createdAt:       timestamp('created_at').notNull().defaultNow(),
+  updatedAt:       timestamp('updated_at').notNull().defaultNow(),
+});
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type NewSubscription = typeof subscriptions.$inferInsert;
+
 export const transactions = pgTable('transactions', {
   id:              text('id').primaryKey(),
   userId:          uuid('user_id').notNull(),
@@ -33,6 +56,11 @@ export const transactions = pgTable('transactions', {
   paymentMethodId: text('payment_method_id').references(() => paymentMethods.id),
   notes:           text('notes'),
   receiptUrl:      text('receipt_url'),
+  // Which subscription this payment settled, and which occurrence of it. The
+  // link lives here because this row is the payment. Neither column is in any
+  // explicit `columns:` projection, so no existing query's payload changes.
+  subscriptionId:     text('subscription_id').references(() => subscriptions.id),
+  subscriptionPeriod: date('subscription_period', { mode: 'string' }),
   items:           jsonb('items').$type<{ name: string; price: number | null }[]>(),
   rawInput:        text('raw_input'),
   needsReview:     boolean('needs_review').notNull().default(false),
