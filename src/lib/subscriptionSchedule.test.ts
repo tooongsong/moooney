@@ -36,6 +36,14 @@ test('a monthly series crosses the year boundary', () => {
   assert.deepEqual(out, ['2026-11-20', '2026-12-20', '2027-01-20', '2027-02-20']);
 });
 
+test('a monthly subscription years into its life still lands on its own day', () => {
+  // Every other monthly window opens in the anchor's own year or the next one,
+  // where the month count in kStart barely matters. Two years on, getting it
+  // wrong skips the first occurrences in the window.
+  const out = occurrencesBetween(sub({ anchorDate: '2023-11-20' }), '2026-09-01', '2026-12-31', TODAY);
+  assert.deepEqual(out, ['2026-09-20', '2026-10-20', '2026-11-20', '2026-12-20']);
+});
+
 // ── Yearly ──────────────────────────────────────────────────────────────────
 
 test('a yearly anchor repeats once a year', () => {
@@ -71,6 +79,15 @@ test('a weekly window opening 2 days into the cycle does not emit the occurrence
   const out = occurrencesBetween(
     sub({ anchorDate: '2026-01-01', cycle: 'weekly' }), '2026-01-03', '2026-01-20', TODAY);
   assert.deepEqual(out, ['2026-01-08', '2026-01-15']);
+});
+
+test('a weekly subscription weeks into its life still lands on its own weekday', () => {
+  // Every other weekly window opens within a week of the anchor, where the 7
+  // in k cannot matter. Months in, a wrong divisor lands on a wrong weekday —
+  // and 2026-01-01 is a Thursday, so these three are Thursdays too.
+  const out = occurrencesBetween(
+    sub({ anchorDate: '2026-01-01', cycle: 'weekly' }), '2026-09-28', '2026-10-18', TODAY);
+  assert.deepEqual(out, ['2026-10-01', '2026-10-08', '2026-10-15']);
 });
 
 // ── Window edges ────────────────────────────────────────────────────────────
