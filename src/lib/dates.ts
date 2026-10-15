@@ -52,7 +52,7 @@ export function nowPartsIn(
 /** Today's calendar date in `tz`. */
 export function todayIn(tz: string, instant: Date = new Date()): CalendarDate {
   const { year, month, day } = nowPartsIn(tz, instant);
-  return format(year, month, day);
+  return makeCalendarDate(year, month, day);
 }
 
 /** Days in a month. Month is 1-based. */
@@ -64,12 +64,12 @@ export function daysInMonth(year: number, month: number): number {
 
 /** Inclusive first and last calendar date of a month. Month is 1-based. */
 export function monthRange(year: number, month: number): [CalendarDate, CalendarDate] {
-  return [format(year, month, 1), format(year, month, daysInMonth(year, month))];
+  return [makeCalendarDate(year, month, 1), makeCalendarDate(year, month, daysInMonth(year, month))];
 }
 
 /** Inclusive first and last calendar date of a year. */
 export function yearRange(year: number): [CalendarDate, CalendarDate] {
-  return [format(year, 1, 1), format(year, 12, 31)];
+  return [makeCalendarDate(year, 1, 1), makeCalendarDate(year, 12, 31)];
 }
 
 /**
@@ -107,6 +107,33 @@ export function monthKeyOf(date: CalendarDate): string {
   return date.slice(0, 7);
 }
 
-function format(year: number, month: number, day: number): CalendarDate {
+/** Build a calendar date from its parts. Month is 1-based. Zero-padded, so
+ *  string comparison on the result is chronological comparison. */
+export function makeCalendarDate(year: number, month: number, day: number): CalendarDate {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * `date` shifted by `n` whole days.
+ *
+ * Built in UTC and read back in UTC: UTC has no DST, so a day is always
+ * 86,400,000ms and nothing can land on the wrong date. The same reason
+ * daysInMonth is built that way.
+ */
+export function addDays(date: CalendarDate, n: number): CalendarDate {
+  const d = new Date(Date.UTC(yearOf(date), monthOf(date) - 1, dayOf(date) + n));
+  return makeCalendarDate(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+}
+
+/** Whole days from `a` to `b`. Negative when `b` is the earlier one. */
+export function daysBetween(a: CalendarDate, b: CalendarDate): number {
+  const ms =
+    Date.UTC(yearOf(b), monthOf(b) - 1, dayOf(b)) -
+    Date.UTC(yearOf(a), monthOf(a) - 1, dayOf(a));
+  return Math.round(ms / 86_400_000);
+}
+
+/** Day of week, 0 = Sunday through 6 = Saturday. */
+export function weekdayOf(date: CalendarDate): number {
+  return new Date(Date.UTC(yearOf(date), monthOf(date) - 1, dayOf(date))).getUTCDay();
 }

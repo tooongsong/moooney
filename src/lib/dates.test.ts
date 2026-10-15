@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   nowPartsIn, todayIn, monthRange, yearRange,
   yearOf, monthOf, monthKeyOf, dayOf, daysInMonth, safeTimeZone, toCalendarDate,
+  addDays, daysBetween, weekdayOf, makeCalendarDate,
 } from './dates.ts';
 
 const LA = 'America/Los_Angeles';
@@ -152,4 +153,44 @@ test('toCalendarDate rejects dates that do not exist', () => {
   assert.throws(() => toCalendarDate('2026-13-01'), /Month out of range/);
   assert.throws(() => toCalendarDate('2026-00-10'), /Month out of range/);
   assert.throws(() => toCalendarDate('2026-04-31'), /Day out of range/);
+});
+
+test('addDays moves by whole days and crosses a month boundary', () => {
+  assert.equal(addDays('2026-01-30', 3), '2026-02-02');
+  assert.equal(addDays('2026-03-01', -1), '2026-02-28');
+  assert.equal(addDays('2028-02-28', 1), '2028-02-29'); // leap year
+  assert.equal(addDays('2026-12-31', 1), '2027-01-01');
+  assert.equal(addDays('2026-06-15', 0), '2026-06-15');
+});
+
+test('addDays is immune to the host timezone, including across a DST jump', () => {
+  // 2026-03-08 is the US spring-forward. A local-time implementation loses an
+  // hour here and can land on the wrong day.
+  const prev = process.env.TZ;
+  process.env.TZ = 'America/Los_Angeles';
+  try {
+    assert.equal(addDays('2026-03-07', 1), '2026-03-08');
+    assert.equal(addDays('2026-03-08', 1), '2026-03-09');
+  } finally {
+    process.env.TZ = prev;
+  }
+});
+
+test('daysBetween counts whole days and is signed', () => {
+  assert.equal(daysBetween('2026-01-01', '2026-01-08'), 7);
+  assert.equal(daysBetween('2026-01-08', '2026-01-01'), -7);
+  assert.equal(daysBetween('2026-02-28', '2026-03-01'), 1);   // common year
+  assert.equal(daysBetween('2028-02-28', '2028-03-01'), 2);   // leap year
+  assert.equal(daysBetween('2026-05-05', '2026-05-05'), 0);
+});
+
+test('weekdayOf returns 0 for Sunday through 6 for Saturday', () => {
+  assert.equal(weekdayOf('2026-10-11'), 0); // Sunday
+  assert.equal(weekdayOf('2026-10-15'), 4); // Thursday
+  assert.equal(weekdayOf('2026-10-17'), 6); // Saturday
+});
+
+test('makeCalendarDate zero-pads, so string order is date order', () => {
+  assert.equal(makeCalendarDate(2026, 1, 5), '2026-01-05');
+  assert.ok(makeCalendarDate(2026, 9, 30) < makeCalendarDate(2026, 10, 1));
 });

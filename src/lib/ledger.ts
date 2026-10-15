@@ -1,4 +1,4 @@
-import { BALANCE_ADJUSTMENT_TYPE } from '@/lib/categories';
+import { BALANCE_ADJUSTMENT_TYPE } from './categories.ts';
 
 /**
  * Per-entry running balances for one account's ledger.

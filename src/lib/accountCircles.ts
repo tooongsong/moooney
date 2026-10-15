@@ -1,4 +1,4 @@
-import { circleSizes, type CircleSizeOptions } from '@/lib/circleSizes';
+import { circleSizes, type CircleSizeOptions } from './circleSizes.ts';
 
 export interface AccountCircle {
   name: string;
