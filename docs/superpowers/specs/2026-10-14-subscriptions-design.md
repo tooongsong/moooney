@@ -1,6 +1,7 @@
 # Subscriptions — Design Spec
 
-Status: pre-implementation. Scope decisions approved by user (single currency, three states, fixed cycles); awaiting review of this document.
+Status: approved. Scope settled (single currency, three states, fixed cycles) and the
+navigation question answered. Ready for a plan.
 
 ## Problem / Goal
 
@@ -39,6 +40,9 @@ Subscriptions page carries its own vocabulary — "expected", "upcoming",
 - **No custom intervals.** Weekly, monthly and yearly. An arbitrary "every N
   months" doubles the month-end and calendar arithmetic for a case neither
   reference screenshot shows.
+- **No price-history table.** A price change is an edit to `amount`. The record
+  of what was actually paid already exists on the transactions — see "Changing
+  the price" below.
 - **No trends view.** The second screenshot has a Calendar / Trends toggle. A
   trend line of *expected* charges reads as money spent, which is the one
   confusion this feature exists to avoid.
@@ -91,7 +95,7 @@ subscriptions
   emoji           text                     -- optional single character
   amount          numeric(12,2) not null
   cycle           text not null            -- 'weekly' | 'monthly' | 'yearly'
-  start_date      date not null            -- anchors the whole series
+  anchor_date     date not null            -- the billing anchor: first payment, not record creation
   status          text not null default 'active'   -- 'active' | 'paused' | 'ended'
   ended_on        date                     -- set when status becomes 'ended'
   category        text                     -- reuses the existing category names
@@ -118,9 +122,20 @@ The transaction *is* the payment, so the link belongs on it. `on delete set
 null` means deleting a subscription leaves its real expenses untouched — the
 money was still spent.
 
-An occurrence is confirmed when a transaction exists carrying that
-subscription's id and that occurrence's date. Nothing else confirms it: a date
-in the past is not evidence that anything was paid.
+An occurrence is confirmed when a linked transaction exists for the same
+billing period. Nothing else confirms it: a date in the past is not evidence
+that anything was paid.
+
+"Same period" is compared at the cycle's own granularity — the month for a
+monthly subscription, the year for a yearly one, the exact date for a weekly
+one, which has no calendar period of its own. Monthly gives exactly one
+occurrence per month and yearly exactly one per year, so this is never
+ambiguous.
+
+Matching by month rather than by exact day is what keeps a confirmation alive
+when the billing day moves, and also when the charge lands a day or two off.
+`subscription_period` still stores the occurrence's own date — a date says what
+it means, and `monthKeyOf` is a string slice away.
 
 Neither column joins `LIST_COLUMNS`, so no existing query's payload changes.
 
@@ -129,7 +144,7 @@ Neither column joins `LIST_COLUMNS`, so no existing query's payload changes.
 The hard part, and the part that gets its own tested module — `src/lib/
 subscriptionSchedule.ts`, in the manner of `lib/dates.ts`.
 
-**Occurrences are derived from `start_date`, never stored.** There is no
+**Occurrences are derived from `anchor_date`, never stored.** There is no
 `next_billing_date` column. A stored cursor drifts: a subscription billed on the
 31st, advanced into February, lands on the 28th, and every later month inherits
 the 28th. Deriving from the anchor makes that impossible.
@@ -138,7 +153,7 @@ the 28th. Deriving from the anchor makes that impossible.
 occurrencesBetween(sub, from, to): CalendarDate[]
 ```
 
-- **weekly** — `start_date + 7k` days.
+- **weekly** — `anchor_date + 7k` days.
 - **monthly** — month advanced by `k`, day = `min(anchorDay, daysInMonth(y, m))`.
   A 31st subscription bills on the 28th in February 2026, the 29th in February
   2028, and returns to the 31st in March. The anchor is never rewritten.
@@ -152,9 +167,44 @@ Status filters the result:
   suspended. Resuming simply stops filtering.
 - **ended** — occurrences up to `ended_on`.
 
-Editing the next payment date moves `start_date`, which re-anchors the series.
-The detail view says so where it is edited, because it also changes where past
-occurrences fall on the calendar.
+The column is named for what it is. It is the billing anchor, not a note of
+when the row was created — `created_at` is that. The form asks for "First
+payment date", because that is the thing a person actually knows.
+
+### Changing the billing day
+
+A service moves its billing from the 15th to the 20th, so the anchor has to be
+editable. Editing it re-derives the whole series, the past included: there is
+one anchor, not a history of them.
+
+Within a month — the case the scenario describes — nothing breaks. Past
+occurrences slide from the 15th to the 20th and stay confirmed, because
+confirmation is matched by month.
+
+The ceiling, stated plainly: moving the anchor into a different month, or
+changing the cycle, changes which periods have occurrences at all, and a link
+whose period no longer answers to one stops confirming anything. The
+transaction keeps its money and its link; the occurrence reads Unconfirmed
+until re-linked. The same holds for a weekly anchor moved by something other
+than a multiple of 7 days. Both are rare, both are visible rather than silent,
+and both are fixed by re-linking — which is cheaper than effective-dated
+anchors and their four extra branches.
+
+### Changing the price
+
+`amount` is the expected price. It drives future occurrences and the normalised
+totals, and it is never written onto a transaction.
+
+A confirmed occurrence shows the **linked transaction's** amount — the money
+that actually moved. Raising a subscription from $10 to $15 changes what is
+expected from now on and changes nothing that was already paid. Where the two
+differ the occurrence shows the actual with the expected beneath it, which is
+how a price rise becomes something you can see rather than something you
+remember.
+
+This is why there is no price-history table. The history of what was paid is
+the transactions, which are already the source of truth for every other figure
+in the app.
 
 All of it works on `"YYYY-MM-DD"` strings through `lib/dates.ts`. No `Date`
 object touches a calendar date, for the reason the date column was migrated in
@@ -178,8 +228,8 @@ whole amount in the month it actually bills, and both numbers are true.
 
 ## Page structure
 
-`/subscriptions`. Where it is reached from is the one open question below; the
-page itself is the same either way.
+`/subscriptions`, reached from the desktop sidebar and, on the phone, from a
+row on Overview — see Navigation below.
 
 ### Main column
 
@@ -227,6 +277,31 @@ once, no toggle.
 The phone keeps one column and the List/Calendar toggle, since both will not
 fit. Order: header, overview, upcoming, toggle, content.
 
+## Navigation
+
+**Desktop** — a fifth entry in `DesktopSidebar`'s `NAV`, after History, at the
+same level as Home, Overview, Accounts and History. `Repeat` from lucide.
+Settings stays pinned at the foot where it is.
+
+**Phone** — the bottom-nav pill keeps its four tabs. It measures 299px and
+clears a 320px screen by 10px, so a fifth fits only by dropping the labels, and
+Overview against Subscriptions as bare icons would be a guess every time.
+
+Overview carries the entry instead: one `lg:hidden` rule row beneath the hero
+stats.
+
+```
+RECURRING                     $142.50 monthly equivalent  →
+```
+
+Not Settings' unlabelled icon in a header corner. A labelled row with a real
+figure on it, on the page where you are already reviewing what you spend.
+
+That figure is a rate, not a period total, so the row reads the same whichever
+month Overview is showing and needs no period logic at all. The wording says as
+much — and the rule at the top of this document applies here of all places:
+this number sits beside Overview's figures and is summed into none of them.
+
 ## Forms
 
 The add and edit form is a dialog using the existing shell, and follows
@@ -246,8 +321,13 @@ submission.
 - `subscriptionSchedule` unit-tested first: the 31st across February in a common
   and a leap year, February 29th yearly, weekly across a month boundary, year
   rollover, the three status filters, an empty range, and a range that starts
-  before `start_date`.
+  before `anchor_date`.
 - Normalisation tested against the stated examples.
+- Moving the anchor from the 15th to the 20th leaves every past month
+  confirmed — tested directly, since it is the scenario that forced
+  month-granularity matching.
+- Editing a price leaves every linked transaction's amount untouched, checked
+  against the database.
 - Totals exclude paused and ended, verified in the unit tests.
 - A past occurrence with no linked transaction reads Unconfirmed, never Paid.
 - Adding a subscription changes no figure on Home, Overview, History or
@@ -256,23 +336,14 @@ submission.
   scroll, amounts never truncated.
 - RLS confirmed enabled on the new table by querying `pg_tables`.
 
-## Open questions
+## Decisions
 
-**Where does Subscriptions live in the navigation?** The bottom nav pill is
-299px wide with four tabs and clears a 320px screen by 10px. A fifth tab does
-not fit without dropping the labels, which would make Overview and Subscriptions
-hard to tell apart as icons.
-
-Three options, needing a decision before implementation:
-
-1. **Desktop sidebar only**, reached on the phone from a link on Home — the
-   arrangement Settings already uses, and the one Overview had until recently.
-2. **Replace a bottom-nav tab.** Accounts and History both have desktop sidebar
-   entries; one could leave the phone's pill.
-3. **Drop the labels on the phone**, five icons only.
-
-Recommendation: (1). Settings already works exactly this way — absent from the
-phone's pill, present in the desktop sidebar, reached on a phone from the icon
-in Home's header — so there is a precedent to follow rather than a new pattern
-to invent. Subscriptions is also something you check weekly rather than several
-times a day, which is what the pill's four tabs are for.
+- **Navigation** — desktop sidebar, plus a labelled row on Overview for the
+  phone. Settings' header-icon treatment was considered and rejected as too
+  easy to miss.
+- **The anchor is editable.** Month-granularity matching is what makes that
+  safe, and the cases it does not cover are named above rather than hidden.
+- **Price changes** are an edit to `amount`. The past lives on the transactions
+  and is never rewritten.
+- **Weekly, monthly, yearly** for the first version. Arbitrary intervals can
+  come later without disturbing any of this.
