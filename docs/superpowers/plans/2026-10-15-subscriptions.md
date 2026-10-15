@@ -120,15 +120,23 @@ test('addDays moves by whole days and crosses a month boundary', () => {
 });
 
 test('addDays is immune to the host timezone, including across a DST jump', () => {
-  // 2026-03-08 is the US spring-forward. A local-time implementation loses an
-  // hour here and can land on the wrong day.
+  // These two dates are chosen to fail a local-midnight-plus-24-hours
+  // implementation, which is the mistake this test exists to catch.
+  // 2026-11-01 in US Pacific is 25 hours long, so +24h lands back on the 1st;
+  // 2026-03-08 is 23 hours, so stepping back a day from the 9th overshoots to
+  // the 7th. A spring-forward *forward* step would pass either way, which is
+  // why it is not the case under test.
   const prev = process.env.TZ;
   process.env.TZ = 'America/Los_Angeles';
   try {
+    assert.equal(addDays('2026-11-01', 1), '2026-11-02');
+    assert.equal(addDays('2026-03-09', -1), '2026-03-08');
     assert.equal(addDays('2026-03-07', 1), '2026-03-08');
-    assert.equal(addDays('2026-03-08', 1), '2026-03-09');
   } finally {
-    process.env.TZ = prev;
+    // delete, not assign: `process.env.TZ = undefined` stores the string
+    // "undefined" and leaves every later test in a nonexistent zone.
+    if (prev === undefined) delete process.env.TZ;
+    else process.env.TZ = prev;
   }
 });
 
@@ -316,6 +324,21 @@ test('an ended subscription with no ended_on falls back to today rather than run
   const out = occurrencesBetween(
     sub({ anchorDate: '2026-08-05', status: 'ended' }), '2026-01-01', '2027-01-31', TODAY);
   assert.deepEqual(out, ['2026-08-05', '2026-09-05', '2026-10-05']);
+});
+
+test('a paused subscription still stops at the end of a window that closes before today', () => {
+  // Without this, `horizon` could ignore its window entirely and return the
+  // status cut-off: every other status test asks for a range running past
+  // today, so none of them would notice.
+  const out = occurrencesBetween(
+    sub({ status: 'paused' }), '2026-01-01', '2026-03-31', TODAY);
+  assert.deepEqual(out, ['2026-01-15', '2026-02-15', '2026-03-15']);
+});
+
+test('an ended subscription still stops at the end of a window that closes before ended_on', () => {
+  const out = occurrencesBetween(
+    sub({ status: 'ended', endedOn: '2026-09-30' }), '2026-01-01', '2026-03-31', TODAY);
+  assert.deepEqual(out, ['2026-01-15', '2026-02-15', '2026-03-15']);
 });
 
 // ── Period keys: what makes a moved billing day safe ────────────────────────
@@ -546,7 +569,7 @@ export function monthlyEquivalent(amount: number, cycle: SubscriptionCycle): num
 - [ ] **Step 10: Run the tests and see them pass**
 
 Run: `npm test`
-Expected: PASS — every file, including the 24 new schedule assertions.
+Expected: PASS — every file, including the new schedule assertions.
 
 - [ ] **Step 11: Typecheck**
 
