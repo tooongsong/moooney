@@ -844,7 +844,7 @@ Create `src/app/actions/subscriptions.ts`:
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
@@ -1081,6 +1081,7 @@ export async function setSubscriptionStatus(
   id: string,
   status: SubscriptionStatus,
 ): Promise<{ success: boolean; error?: string }> {
+  // Note: `sql` must be in this file's drizzle import for the coalesce below.
   const user = await getUser();
   if (!SUBSCRIPTION_STATUSES.includes(status)) return { success: false, error: 'Unknown status' };
 
@@ -1092,7 +1093,18 @@ export async function setSubscriptionStatus(
       // keeps a paused subscription from accruing an imaginary charge for
       // every month it stays paused. Reactivating clears it, or the series
       // would go on stopping at the old date.
-      .set({ status, stoppedOn: status === 'active' ? null : today, updatedAt: new Date() })
+      //
+      // coalesce, not a plain assignment: the *first* stop is the one that
+      // counts. Pause in October and end in December, and re-stamping would
+      // move the stop to December and bring November's charge back as an
+      // unconfirmed past occurrence — exactly what the stop date is for.
+      .set({
+        status,
+        stoppedOn: status === 'active'
+          ? null
+          : sql`coalesce(${subscriptions.stoppedOn}, ${today}::date)`,
+        updatedAt: new Date(),
+      })
       .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, user.id)))
       .returning({ id: subscriptions.id });
     if (res.length === 0) return { success: false, error: 'Subscription not found' };
@@ -1149,6 +1161,8 @@ await sql.end();
 ```
 
 Expected: one row with `amount: 9.99` (a number, not a string — the driver is configured to parse `numeric`), `anchor_date: '2026-01-31'` as a plain string with no time or zone, `status: 'active'`, `stopped_on: null`. Then `rows left: 0`.
+
+Also check the coalesce by hand, since no unit test reaches it: set a row to `paused`, note its `stopped_on`, then set the same row to `ended`. The date must not move. Then set it to `active`: the date must become null.
 
 If `anchor_date` comes back as a `Date` or carries a time, the column type or the drizzle `mode: 'string'` is wrong — stop and fix it here. That exact mistake cost this project a day-early date bug across the whole app.
 
@@ -2269,7 +2283,7 @@ A month of days with the charges marked on them. Desktop shows it beside the lis
 
 - [ ] **Step 1: Add the month query**
 
-Append to `src/app/actions/subscriptions.ts`, and extend its drizzle import to `import { and, asc, desc, eq, gte, isNull, lte } from 'drizzle-orm';` and its schema import to include `transactions`, and its dates import to include `monthRange`:
+Append to `src/app/actions/subscriptions.ts`, and extend its drizzle import to `import { and, asc, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';` and its schema import to include `transactions`, and its dates import to include `monthRange`:
 
 ```ts
 export interface DayOccurrence {
