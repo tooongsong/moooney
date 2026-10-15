@@ -32,16 +32,23 @@ export interface Schedulable {
   anchorDate: CalendarDate;
   cycle: SubscriptionCycle;
   status: SubscriptionStatus;
-  endedOn: CalendarDate | null;
+  stoppedOn: CalendarDate | null;
 }
 
 /** Where the series stops, given its status. `today` is the user's today. */
 function horizon(sub: Schedulable, to: CalendarDate, today: CalendarDate): CalendarDate {
   if (sub.status === 'active') return to;
-  // Paused suspends the future and keeps the past. Ended stops at the day it
-  // ended, or at today if that was never recorded — never at `to`, which would
-  // run an ended subscription forever.
-  const stop = sub.status === 'ended' ? (sub.endedOn ?? today) : today;
+  // Paused and ended ask the same question — when did this stop billing — so
+  // they share one date and one branch.
+  //
+  // Clamping a paused subscription at `today` instead would grow phantom
+  // occurrences for as long as it stayed paused: pause on 20 October, and by
+  // December the 5th of November and the 5th of December are in the past,
+  // unconfirmed, and entirely imaginary.
+  //
+  // Falling back to `today` covers a row that stopped before this column
+  // existed; never `to`, which would run a stopped subscription forever.
+  const stop = sub.stoppedOn ?? today;
   return stop < to ? stop : to;
 }
 

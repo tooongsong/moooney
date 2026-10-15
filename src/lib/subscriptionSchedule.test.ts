@@ -11,7 +11,7 @@ import {
 const TODAY = '2026-10-15';
 
 function sub(over: Partial<Schedulable> = {}): Schedulable {
-  return { anchorDate: '2026-01-15', cycle: 'monthly', status: 'active', endedOn: null, ...over };
+  return { anchorDate: '2026-01-15', cycle: 'monthly', status: 'active', stoppedOn: null, ...over };
 }
 
 // ── Monthly, and the month-end clamp that makes a stored cursor impossible ──
@@ -64,6 +64,15 @@ test('a weekly window that opens mid-cycle starts at the next occurrence, not th
   assert.deepEqual(out, ['2026-01-08', '2026-01-15']);
 });
 
+test('a weekly window opening 2 days into the cycle does not emit the occurrence behind it', () => {
+  // A 4-day remainder is the one case where rounding to nearest happens to
+  // agree with rounding up. Remainders of 1 to 3 days are where ceil matters,
+  // and getting it wrong emits a date from before the window opened.
+  const out = occurrencesBetween(
+    sub({ anchorDate: '2026-01-01', cycle: 'weekly' }), '2026-01-03', '2026-01-20', TODAY);
+  assert.deepEqual(out, ['2026-01-08', '2026-01-15']);
+});
+
 // ── Window edges ────────────────────────────────────────────────────────────
 
 test('a window opening before the anchor starts at the anchor, not before it', () => {
@@ -87,20 +96,29 @@ test('an active subscription keeps going into the future', () => {
   assert.deepEqual(out, ['2026-10-05', '2026-11-05', '2026-12-05', '2027-01-05']);
 });
 
-test('a paused subscription stops at today — the past happened, the future is suspended', () => {
+test('a paused subscription stops on the day it was paused', () => {
+  // The whole point of storing the date: without it this runs to today and
+  // keeps growing, inventing a charge for every month it stays paused.
+  const out = occurrencesBetween(
+    sub({ anchorDate: '2026-05-05', status: 'paused', stoppedOn: '2026-07-20' }),
+    '2026-01-01', '2027-01-31', TODAY);
+  assert.deepEqual(out, ['2026-05-05', '2026-06-05', '2026-07-05']);
+});
+
+test('a paused row with no stop date falls back to today rather than running forever', () => {
   const out = occurrencesBetween(
     sub({ anchorDate: '2026-08-05', status: 'paused' }), '2026-01-01', '2027-01-31', TODAY);
   assert.deepEqual(out, ['2026-08-05', '2026-09-05', '2026-10-05']);
 });
 
-test('an ended subscription stops at ended_on', () => {
+test('an ended subscription stops at stopped_on', () => {
   const out = occurrencesBetween(
-    sub({ anchorDate: '2026-05-05', status: 'ended', endedOn: '2026-07-31' }),
+    sub({ anchorDate: '2026-05-05', status: 'ended', stoppedOn: '2026-07-31' }),
     '2026-01-01', '2027-01-31', TODAY);
   assert.deepEqual(out, ['2026-05-05', '2026-06-05', '2026-07-05']);
 });
 
-test('an ended subscription with no ended_on falls back to today rather than running forever', () => {
+test('an ended subscription with no stopped_on falls back to today rather than running forever', () => {
   const out = occurrencesBetween(
     sub({ anchorDate: '2026-08-05', status: 'ended' }), '2026-01-01', '2027-01-31', TODAY);
   assert.deepEqual(out, ['2026-08-05', '2026-09-05', '2026-10-05']);
@@ -115,10 +133,18 @@ test('a paused subscription still stops at the end of a window that closes befor
   assert.deepEqual(out, ['2026-01-15', '2026-02-15', '2026-03-15']);
 });
 
-test('an ended subscription still stops at the end of a window that closes before ended_on', () => {
+test('an ended subscription still stops at the end of a window that closes before stopped_on', () => {
   const out = occurrencesBetween(
-    sub({ status: 'ended', endedOn: '2026-09-30' }), '2026-01-01', '2026-03-31', TODAY);
+    sub({ status: 'ended', stoppedOn: '2026-09-30' }), '2026-01-01', '2026-03-31', TODAY);
   assert.deepEqual(out, ['2026-01-15', '2026-02-15', '2026-03-15']);
+});
+
+test('the stop date is inclusive — a charge due on the day it stopped still counts', () => {
+  // Make the bound exclusive and 07-15 disappears with nothing else noticing.
+  const out = occurrencesBetween(
+    sub({ anchorDate: '2026-06-15', status: 'ended', stoppedOn: '2026-07-15' }),
+    '2026-01-01', '2026-12-31', TODAY);
+  assert.deepEqual(out, ['2026-06-15', '2026-07-15']);
 });
 
 // ── Period keys: what makes a moved billing day safe ────────────────────────
@@ -161,6 +187,15 @@ test('nextOccurrence on a yearly subscription reaches across the whole year', ()
     '2027-01-10');
 });
 
+test('a yearly subscription years into its life still finds its next payment', () => {
+  // Every other yearly test starts within a year of the anchor, where the
+  // `/ step` in kStart cannot matter. Drop that divisor and this returns null
+  // — "no next payment" for every yearly subscription over about 13 months old.
+  assert.equal(
+    nextOccurrence(sub({ anchorDate: '2023-06-01', cycle: 'yearly' }), '2026-10-15', TODAY),
+    '2027-06-01');
+});
+
 test('a paused subscription has no next payment, though its past occurrences remain', () => {
   assert.equal(nextOccurrence(sub({ status: 'paused' }), TODAY, TODAY), null);
   assert.deepEqual(
@@ -171,7 +206,7 @@ test('a paused subscription has no next payment, though its past occurrences rem
 
 test('an ended subscription has no next payment either', () => {
   assert.equal(
-    nextOccurrence(sub({ status: 'ended', endedOn: '2026-09-30' }), TODAY, TODAY), null);
+    nextOccurrence(sub({ status: 'ended', stoppedOn: '2026-09-30' }), TODAY, TODAY), null);
 });
 
 // ── Normalisation ───────────────────────────────────────────────────────────
