@@ -2586,7 +2586,7 @@ Nothing in this plan writes to the database, so the form cannot be driven end to
 
 **Validation, in the harness.** Most rejections in `saveSubscription` happen before any database call, so the messages are reachable by reading the function and matching them to what the form can produce. Two do not, and they are marked:
 
-1. Empty name → `Name is required`.
+1. Empty name → `Name is required`, from the dialog, before any request. The action guards it too, with the same message and the same `trim()`; that copy is reachable only by a caller that is not this form.
 2. Amount `0` → `Amount must be greater than zero`, from the action. Amount `-5`, `abc`, `1.2.3` or `11.999` → `Enter the amount like 11.99 or 1,288.88`, from the dialog, before any request goes out: all of them are NaN, `-5` included, since a minus sign is not part of the grammar. **`1,288.88` must save as 1288.88, not 1.00, and `11,99` must be rejected rather than saved as 1199** — the first is what `parseFloat` got wrong and the second is what stripping commas got wrong.
 3. A cycle outside the three → `Pick a billing cycle`. Unreachable from the form's own `Select`, which is the point: it guards the action, not the widget.
 4. Date `2026-02-30` → `toCalendarDate` throws and the action answers `Enter a valid first payment date`. Task 1 unit-tests that throw directly, so this is about the catch being there.
@@ -2596,7 +2596,7 @@ Nothing in this plan writes to the database, so the form cannot be driven end to
 
 **State transitions, by reading.** Confirm in `setSubscriptionStatus` that `active` nulls `stoppedOn`, that the other two use `coalesce(stopped_on, today)` so the first stop wins, and that the `where` filters on `userId` as well as `id`.
 
-**Double submission, in the harness.** Click Save with no session: the button must disable for the duration and re-enable on the error toast, so a second click cannot fire a second save.
+**Double submission, in the harness.** Not with a signed-out Save — that now redirects to `/login` with no toast at all, because `unstable_rethrow` lets the redirect through. Use a forced transport failure instead (DevTools offline, or rejecting the request): the button must disable for the duration and re-enable when the "Could not reach the server" toast appears, so a second click cannot fire a second save.
 
 **Write this into your report as the user's checklist** — the part that genuinely needs a write, in the order it should be tried:
 
