@@ -2880,7 +2880,10 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   // produce "2026-13-01", which is not a date.
   let year = Number(monthKey?.slice(0, 4));
   let month = Number(monthKey?.slice(5, 7));
-  if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12)) {
+  // The year bound is not pedantry: makeCalendarDate does not pad the year,
+  // so "0001-05" survives the shape check and produces "1-05-01", which is
+  // not a date any column will accept.
+  if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12) || !(year >= 1000)) {
     year = Number(today.slice(0, 4));
     month = Number(today.slice(5, 7));
   }
@@ -3059,9 +3062,21 @@ export function SubscriptionCalendar({
               key={date}
               type="button"
               disabled={items.length === 0}
+              // Without this the only thing announced is the day number. The
+              // marks are aria-hidden, so a screen reader would have no way to
+              // know which days carry a charge — which is the whole grid.
+              aria-label={
+                items.length > 0
+                  ? `${MONTH_NAMES[data.month - 1]} ${Number(date.slice(8))}, ` +
+                    `${items.length} ${items.length === 1 ? 'charge' : 'charges'}`
+                  : undefined
+              }
               onClick={() => setOpenDay(date)}
               className={cn(
-                'aspect-square rounded-xl bg-sand p-1 flex flex-col items-center justify-start gap-0.5',
+                // rounded-lg, not xl: this theme maps lg to 16px, which is on
+                // the 16/24/pill scale, and xl to 20px, which is not — and at a
+                // 43px cell a 20px radius turns the grid into circles.
+                'aspect-square rounded-lg bg-sand p-1 flex flex-col items-center justify-start gap-0.5',
                 'transition-colors disabled:cursor-default',
                 items.length > 0 && 'hover:bg-ink/10',
                 // Today is marked by an outline, not a fill: a filled cell
@@ -3317,7 +3332,7 @@ The harness is reached the same way as in Task 7 — `dev-preview` is already ex
 
 - [ ] **Step 1: Add the actions**
 
-Append to `src/app/actions/subscriptions.ts`. Add `addDays` to the `@/lib/dates` import.
+Append to `src/app/actions/subscriptions.ts`. Add `addDays` to the `@/lib/dates` import, and `desc` to the drizzle one — Task 7 left it out because nothing there used it, and `getLinkCandidates` below is the first caller.
 
 ```ts
 export interface OccurrenceState {
