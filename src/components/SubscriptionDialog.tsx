@@ -17,7 +17,7 @@ import {
   type SubscriptionRow,
 } from '@/app/actions/subscriptions';
 import type { SubscriptionCycle, SubscriptionStatus } from '@/lib/subscriptionSchedule';
-import { cn } from '@/lib/utils';
+import { cn, parseAmountInput } from '@/lib/utils';
 
 // Radix refuses an empty string as a SelectItem value, so "none" needs a name.
 const NONE = '__none__';
@@ -87,7 +87,7 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
     const res = await saveSubscription({
       id: subscription?.id,
       name,
-      amount: parseFloat(amount),
+      amount: parseAmountInput(amount),
       cycle,
       anchorDate,
       emoji,

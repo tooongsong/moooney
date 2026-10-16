@@ -61,3 +61,27 @@ export function toDateInputValue(date: Date | string = new Date()): string {
 export function isSingleGrapheme(value: string): boolean {
   return [...new Intl.Segmenter().segment(value)].length === 1;
 }
+
+/** The first character of `value` as a person sees it, or '' if there is none.
+ *  Same reason as above: `value[0]` and `Array.from(value)[0]` both return a
+ *  fragment of a joined emoji or a letter stripped of its accent. */
+export function firstGrapheme(value: string): string {
+  return [...new Intl.Segmenter().segment(value)][0]?.segment ?? '';
+}
+
+/**
+ * Read a typed money amount, or NaN.
+ *
+ * `parseFloat` is the trap here: it stops at the first character it cannot
+ * read, so "1,288.88" becomes 1 — valid, positive, past every guard, and
+ * silently a thousand times too small. Since the app formats with thousands
+ * separators, typing one back in is the obvious thing to do.
+ *
+ * Grouping separators and a currency symbol are stripped; anything else
+ * returns NaN, which the callers already reject.
+ */
+export function parseAmountInput(value: string): number {
+  const cleaned = value.replace(/[$,\s]/g, '');
+  if (cleaned === '' || !/^\d*\.?\d*$/.test(cleaned)) return NaN;
+  return Number(cleaned);
+}

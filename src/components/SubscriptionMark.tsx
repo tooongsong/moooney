@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { cn, firstGrapheme } from '@/lib/utils';
 
 /**
  * A subscription's identity mark.
@@ -19,9 +19,10 @@ export function SubscriptionMark({
   size?: number;
   className?: string;
 }) {
-  // Array.from, not name[0]: a name beginning with an emoji or any astral
-  // character would otherwise be cut in half mid-surrogate-pair.
-  const initial = Array.from(name.trim())[0] ?? '?';
+  // By grapheme, not by code point: a name beginning with a joined emoji
+  // would otherwise render as whichever emoji its first code point happens
+  // to be, and an accented letter would lose its accent.
+  const initial = firstGrapheme(name.trim()) || '?';
   const mark = emoji?.trim();
   return (
     <span

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDate, isSingleGrapheme, toDateInputValue } from './utils.ts';
+import { firstGrapheme, formatDate, isSingleGrapheme, parseAmountInput, toDateInputValue } from './utils.ts';
 
 // Regression tests for the off-by-one date bug.
 //
@@ -70,6 +70,34 @@ test('one grapheme means one, not one emoji — a letter passes', () => {
   // Emoji; a letter there renders as a letter and harms nothing.
   assert.equal(isSingleGrapheme('a'), true);
   assert.equal(isSingleGrapheme('字'), true);
+});
+
+test('firstGrapheme returns a whole character, not a fragment of one', () => {
+  assert.equal(firstGrapheme('🧑‍💻 Dev tools'), '🧑‍💻');
+  assert.equal(firstGrapheme('網易云音樂'), '網');
+  assert.equal(firstGrapheme('Spotify'), 'S');
+  assert.equal(firstGrapheme(''), '');
+  // The failure this replaces: the first code point of a joined emoji renders
+  // as a different emoji entirely.
+  assert.notEqual(firstGrapheme('👨‍👩‍👧 Family plan'), Array.from('👨‍👩‍👧 Family plan')[0]);
+});
+
+test('parseAmountInput reads what a person types, including the separators we printed', () => {
+  assert.equal(parseAmountInput('1288.88'), 1288.88);
+  assert.equal(parseAmountInput('1,288.88'), 1288.88);
+  assert.equal(parseAmountInput('$1,288.88'), 1288.88);
+  assert.equal(parseAmountInput(' 11.99 '), 11.99);
+  assert.equal(parseAmountInput('.5'), 0.5);
+  assert.equal(parseAmountInput('7'), 7);
+  // The bug: parseFloat('1,288.88') is 1 — positive, finite, and past every
+  // guard the action has.
+  assert.notEqual(parseAmountInput('1,288.88'), parseFloat('1,288.88'));
+});
+
+test('parseAmountInput refuses anything that is not a number', () => {
+  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
 });
 
 test('an empty string is not one grapheme', () => {
