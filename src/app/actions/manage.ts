@@ -100,24 +100,22 @@ export async function archivePaymentMethod(id: string) {
 }
 
 export async function deletePaymentMethod(id: string) {
-  // This path had no ownership check at all, and RLS does not cover it: the
-  // app connects as `postgres`, which has rolbypassrls, so every query has to
-  // scope itself. Both siblings above already do; this one deleted any
-  // account by id. Same shape as archivePaymentMethod, deliberately — a
-  // non-match is a silent no-op there too.
+  // RLS does not apply on this path: the app connects as `postgres`, which has
+  // rolbypassrls, so every query here scopes itself to the caller.
   const user = await getUser();
 
   const account = await db.query.paymentMethods.findFirst({
     where: and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id)),
     columns: { id: true },
   });
+  // Not the caller's account, or no such account: a silent no-op, as in
+  // archivePaymentMethod.
   if (!account) return { success: true };
 
-  // An account is archived rather than deleted when anything still points at
-  // it. Transactions were already handled; subscriptions and transfers are
-  // the same case, and the foreign keys are all NO ACTION, so an unguarded
-  // delete raises a raw constraint error — an unhandled 500, since there is
-  // no try/catch here.
+  // An account is archived rather than deleted when any row still references
+  // it. Every foreign key to payment_methods is NO ACTION, so an unguarded
+  // delete raises a raw constraint error — an unhandled 500, since there is no
+  // try/catch here.
   const linked = await db.query.transactions.findFirst({
     where: eq(transactions.paymentMethodId, account.id),
     columns: { id: true },
