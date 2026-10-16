@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { unstable_rethrow } from 'next/navigation';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -91,7 +92,13 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   // stays disabled behind a spinner, and reopening does not clear it.
   async function handleSave() {
     // Said before the action, because the action can only answer "greater
-    // than zero" — which reads as nonsense to someone who typed 11,99.
+    // than zero" — which reads as nonsense to someone who typed 11,99. After
+    // the name check, so an untouched form complains about its first field
+    // rather than its second.
+    if (!name.trim()) {
+      toast.error('Name is required');
+      return;
+    }
     if (Number.isNaN(parseAmountInput(amount))) {
       toast.error('Enter the amount like 11.99 or 1,288.88');
       return;
@@ -117,7 +124,12 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
       toast.success(subscription ? 'Saved' : 'Added');
       handleOpenChange(false);
       router.refresh();
-    } catch {
+    } catch (error) {
+      // Next signals an internal redirect by rejecting the action promise, so
+      // a signed-out session lands here on its way to /login. Rethrowing
+      // first lets that through untouched; without it the user gets a
+      // "could not reach the server" toast riding on top of the login page.
+      unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
     } finally {
       setSaving(false);
@@ -135,7 +147,12 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
       }
       handleOpenChange(false);
       router.refresh();
-    } catch {
+    } catch (error) {
+      // Next signals an internal redirect by rejecting the action promise, so
+      // a signed-out session lands here on its way to /login. Rethrowing
+      // first lets that through untouched; without it the user gets a
+      // "could not reach the server" toast riding on top of the login page.
+      unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
     } finally {
       setSaving(false);
@@ -154,7 +171,12 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
       toast.success('Deleted');
       handleOpenChange(false);
       router.refresh();
-    } catch {
+    } catch (error) {
+      // Next signals an internal redirect by rejecting the action promise, so
+      // a signed-out session lands here on its way to /login. Rethrowing
+      // first lets that through untouched; without it the user gets a
+      // "could not reach the server" toast riding on top of the login page.
+      unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
     } finally {
       setSaving(false);
