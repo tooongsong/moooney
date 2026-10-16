@@ -706,7 +706,7 @@ create table if not exists subscriptions (
   cycle             text not null default 'monthly',   -- weekly | monthly | yearly
   anchor_date       date not null,                     -- first payment, not row creation
   status            text not null default 'active',    -- active | paused | ended
-  stopped_on        date,                     -- the day billing stopped, paused or ended
+  stopped_on        date,                              -- the day billing stopped, paused or ended
   category          text,                              -- a name from getAllCategories()
   payment_method_id text references payment_methods(id),
   website           text,
@@ -984,7 +984,7 @@ Every read names its columns. This project has already spent 6.5 GB of egress on
 **Files:**
 - Create: `src/app/actions/subscriptions.ts`
 - Modify: `src/app/actions/settings.ts` — `deleteAllData` must clear subscriptions too
-- Modify: `src/components/ExportButtons.tsx` — the confirm copy names what is deleted
+- Modify: `src/app/settings/ExportButtons.tsx` — the confirm copy names what is deleted
 
 **Interfaces:**
 - Consumes: `occurrencesBetween`, `nextOccurrence`, `monthlyEquivalent`, `periodKeyOf`, `Schedulable`, `SubscriptionCycle`, `SubscriptionStatus` from `@/lib/subscriptionSchedule`; `subscriptions`, `paymentMethods` from `@/db/schema`.
@@ -994,7 +994,7 @@ Every read names its columns. This project has already spent 6.5 GB of egress on
   - `interface SubscriptionsView { today; subscriptions: (SubscriptionRow & { next: CalendarDate | null })[]; monthlyTotal; annualTotal; activeCount; upcoming: UpcomingOccurrence[] }`
   - `getSubscriptionsView(): Promise<SubscriptionsView>`
   - `getRecurringMonthlyTotal(): Promise<{ monthly: number; activeCount: number }>`
-  - `getAccountOptions(include?: string | null): Promise<{ id: string; name: string; archived: boolean }[]>` — `include` keeps one archived account in the list, for the edit form
+  - `getAccountOptions(): Promise<{ id: string; name: string; archived: boolean }[]>` — active accounts, plus any archived one a subscription still pays from
   - `saveSubscription(input: SaveSubscriptionInput): Promise<{ success: true; id: string } | { success: false; error: string }>`
   - `setSubscriptionStatus(id: string, status: SubscriptionStatus): Promise<{ success: boolean; error?: string }>`
   - `deleteSubscription(id: string): Promise<{ success: boolean; error?: string }>`
@@ -1007,7 +1007,7 @@ Create `src/app/actions/subscriptions.ts`:
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, exists, isNull, or, sql } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
@@ -1148,25 +1148,36 @@ export async function getRecurringMonthlyTotal(): Promise<{ monthly: number; act
 
 /** id + name for the form's account picker. The existing listPaymentMethods
  *  selects every column, which this does not need. */
-export async function getAccountOptions(
-  /** Keep this one in the list even if archived — see below. */
-  include?: string | null,
-): Promise<{ id: string; name: string; archived: boolean }[]> {
+export async function getAccountOptions(): Promise<
+  { id: string; name: string; archived: boolean }[]
+> {
   const user = await getUser();
   const rows = await db.query.paymentMethods.findMany({
     where: and(
       eq(paymentMethods.userId, user.id),
-      include
-        ? or(isNull(paymentMethods.archivedAt), eq(paymentMethods.id, include))
-        : isNull(paymentMethods.archivedAt),
+      or(
+        isNull(paymentMethods.archivedAt),
+        // An archived account that a subscription still pays from stays in the
+        // picker. Deleting such an account archives it rather than removing
+        // it, on the promise that it stays findable — and if the picker
+        // dropped it, opening that subscription would show an empty "Pays
+        // from" and clear the link on the next save.
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(subscriptions)
+            .where(
+              and(
+                eq(subscriptions.userId, user.id),
+                eq(subscriptions.paymentMethodId, paymentMethods.id),
+              ),
+            ),
+        ),
+      ),
     ),
     columns: { id: true, name: true, archivedAt: true },
     orderBy: [asc(paymentMethods.name)],
   });
-  // Deleting an account that a subscription pays from archives it instead, on
-  // the promise that it stays findable. If the picker dropped archived
-  // accounts outright, opening that subscription would show an empty "Pays
-  // from" and silently clear the link on the next save.
   return rows.map(({ id, name, archivedAt }) => ({ id, name, archived: archivedAt !== null }));
 }
 
@@ -1385,7 +1396,7 @@ If `anchor_date` comes back as a `Date` or carries a time, the column type or th
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/actions/subscriptions.ts src/app/actions/settings.ts src/components/ExportButtons.tsx
+git add src/app/actions/subscriptions.ts src/app/actions/settings.ts src/app/settings/ExportButtons.tsx
 git commit -m "Add subscription server actions
 
 Totals count active subscriptions only — a paused one is not a commitment.
@@ -1871,7 +1882,7 @@ One dialog does all of it. Follows `EditBalanceDialog`: controlled `open`, `Dial
 
 **Interfaces:**
 - Consumes: `saveSubscription`, `setSubscriptionStatus`, `deleteSubscription`, `getAccountOptions`, `SubscriptionRow` from `@/app/actions/subscriptions`; `getAllCategories` from `@/app/actions/manage`.
-- Produces: `<SubscriptionDialog subscription?={SubscriptionRow} today={string} categories={string[]} accounts={{id,name}[]}>{trigger}</SubscriptionDialog>`. `SubscriptionList` gains `today`, `categories` and `accounts` props and renders each row inside one.
+- Produces: `<SubscriptionDialog subscription?={SubscriptionRow} today={string} categories={string[]} accounts={{id,name,archived}[]}>{trigger}</SubscriptionDialog>`. `SubscriptionList` gains `today`, `categories` and `accounts` props and renders each row inside one.
 
 - [ ] **Step 1: Write the dialog**
 
@@ -1920,7 +1931,7 @@ interface Props {
   /** The user's today, for the first-payment default. */
   today: string;
   categories: string[];
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; archived: boolean }[];
   children: ReactNode;
 }
 
@@ -2089,7 +2100,11 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
                   <SelectTrigger id="sub-account"><SelectValue placeholder="None" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NONE}>None</SelectItem>
-                    {accounts.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                    {accounts.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.archived ? `${a.name} (archived)` : a.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -2173,7 +2188,7 @@ export function SubscriptionList({
   items: ListItem[];
   today: string;
   categories: string[];
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; archived: boolean }[];
 }) {
 ```
 
@@ -2238,7 +2253,7 @@ Pass the new props to the list:
 `src/app/dev-preview/page.tsx` now has to pass the two new props:
 
 ```tsx
-      <SubscriptionList items={ITEMS} today={TODAY} categories={['Entertainment', 'Bills', 'Groceries', 'Health', 'Other']} accounts={[{ id: 'a1', name: 'Amex Gold' }, { id: 'a2', name: 'Chase Checking' }]} />
+      <SubscriptionList items={ITEMS} today={TODAY} categories={['Entertainment', 'Bills', 'Groceries', 'Health', 'Other']} accounts={[{ id: 'a1', name: 'Amex Gold', archived: false }, { id: 'a2', name: 'Chase Checking', archived: true }]} />
 ```
 
 - [ ] **Step 5: Typecheck**
