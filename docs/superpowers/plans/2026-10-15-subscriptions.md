@@ -844,54 +844,86 @@ Expected: both clean. The build is the real check — it proves the new table di
 
 The function already has the right answer for this shape of problem one branch up: an account with transactions is archived instead of deleted. Give subscriptions the same treatment.
 
-In `src/app/actions/manage.ts`, add `subscriptions` to the `@/db/schema` import, then replace the body of `deletePaymentMethod`:
+In `src/app/actions/manage.ts`, add `subscriptions` to the `@/db/schema` import, then replace `deletePaymentMethod` entirely:
 
 ```ts
 export async function deletePaymentMethod(id: string) {
+  // This path had no ownership check at all, and RLS does not cover it: the
+  // app connects as `postgres`, which has rolbypassrls, so every query has to
+  // scope itself. Both siblings above already do; this one deleted any
+  // account by id. Same shape as archivePaymentMethod, deliberately — a
+  // non-match is a silent no-op there too.
+  const user = await getUser();
+
   const account = await db.query.paymentMethods.findFirst({
-    where: eq(paymentMethods.id, id),
+    where: and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id)),
     columns: { id: true },
   });
+  if (!account) return { success: true };
 
-  if (account) {
-    const linked = await db.query.transactions.findFirst({
-      where: eq(transactions.paymentMethodId, account.id),
-      columns: { id: true },
-    });
-    if (linked) {
-      // Has transactions -> archive instead of delete
-      return archivePaymentMethod(id);
-    }
+  // An account is archived rather than deleted when anything still points at
+  // it. Transactions were already handled; subscriptions and transfers are
+  // the same case, and the foreign keys are all NO ACTION, so an unguarded
+  // delete raises a raw constraint error — an unhandled 500, since there is
+  // no try/catch here.
+  const linked = await db.query.transactions.findFirst({
+    where: eq(transactions.paymentMethodId, account.id),
+    columns: { id: true },
+  });
+  if (linked) return archivePaymentMethod(id);
 
-    // And the same for a subscription that pays from it. The foreign key
-    // would otherwise reject the delete outright, and making the key
-    // `on delete set null` would be worse: the account would vanish and the
-    // subscription would quietly lose a field the user filled in. Archiving
-    // keeps the account findable and the link intact.
-    const subscribed = await db.query.subscriptions.findFirst({
-      where: eq(subscriptions.paymentMethodId, account.id),
-      columns: { id: true },
-    });
-    if (subscribed) {
-      return archivePaymentMethod(id);
-    }
-  }
+  // Archiving beats making the key `on delete set null`: the account stays
+  // findable, and the subscription keeps the field the user filled in rather
+  // than silently losing it.
+  const subscribed = await db.query.subscriptions.findFirst({
+    where: eq(subscriptions.paymentMethodId, account.id),
+    columns: { id: true },
+  });
+  if (subscribed) return archivePaymentMethod(id);
 
-  await db.delete(paymentMethods).where(eq(paymentMethods.id, id));
+  const transferred = await db.query.transfers.findFirst({
+    where: or(eq(transfers.fromAccountId, account.id), eq(transfers.toAccountId, account.id)),
+    columns: { id: true },
+  });
+  if (transferred) return archivePaymentMethod(id);
+
+  await db.delete(paymentMethods)
+    .where(and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id)));
   revalidateAccounts();
   return { success: true };
 }
 ```
 
-The `columns:` on all three reads is the project's standing rule, and the first two were missing it — a bare `findFirst` on `transactions` pulls every column of the row it finds, receipt image included.
+`transfers` and `or` need adding to the imports — `transfers` from `@/db/schema`, `or` from `drizzle-orm`.
+
+Three things changed beyond the subscriptions check, and all three are deliberate:
+
+1. **Ownership scoping.** `deletePaymentMethod` took an id and deleted it, with no `getUser()` and no `userId` filter. RLS does not save it: `DATABASE_URL` connects as `postgres`, which has `rolbypassrls`, so RLS is defence in depth for the Supabase API and nothing at all for this path. `updatePaymentMethod` and `archivePaymentMethod` both scope correctly; this one did not.
+2. **Transfers.** `transfers.from_account_id` and `transfers.to_account_id` reference `payment_methods` with NO ACTION too, and nothing checked them. An account with a transfer and no transactions already raised a raw constraint error before this branch existed. Guarding two of the three referencing tables and not the third would be arbitrary.
+3. **Early return on a missing account.** The old code fell through to the delete when the lookup found nothing, which worked only because the delete then matched nothing either.
+
+The `columns:` on every read is the project's standing rule
 
 - [ ] **Step 7: Read the guard against its own call graph**
 
 Writing to the database is not available, so this guard cannot be exercised end to end here. Verify it the way you would verify a branch you cannot reach in a test:
 
-1. `archivePaymentMethod` is defined in the same file and already returns the shape `deletePaymentMethod` returns. Confirm both branches return it, not a bare `true`.
+1. `archivePaymentMethod` is defined in the same file and already returns the shape `deletePaymentMethod` returns. Confirm every archive branch returns it, not a bare `true`.
+0. Ownership: confirm `getUser()` is called, and that `userId` appears in the `where` of both the lookup and the delete. This is the finding that matters most — without it any signed-in user could delete another user's account by id, and RLS does not stop it.
 2. `subscriptions.paymentMethodId` is the column the new `findFirst` filters on, and it is the same column the foreign key is declared over. Confirm against `src/db/schema.ts`.
 3. Nothing else in the codebase deletes from `payment_methods`: `grep -rn "delete(paymentMethods)" src/` must return exactly the one call site you just guarded. If it returns more, the guard is incomplete and that is a finding.
+3b. Every table that references `payment_methods` is now checked. Confirm the list is complete, read-only:
+
+```bash
+node --env-file=.env.local --input-type=module -e "
+import postgres from 'postgres';
+const sql = postgres(process.env.DATABASE_URL, { prepare: false });
+console.table(await sql.unsafe(\"select conrelid::regclass as referencing_table, conname, confdeltype from pg_constraint where confrelid='payment_methods'::regclass and contype='f'\").simple());
+await sql.end();
+"
+```
+
+Expected: `transactions`, `transfers` (twice) and `subscriptions`. Any row with `confdeltype` `a` must have a corresponding check in the function. If a table appears that the function does not check, that is a finding.
 4. Read-only, confirm the constraint is the one the guard exists for:
 
 ```bash
