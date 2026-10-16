@@ -8,6 +8,7 @@ import { db } from '@/db';
 import { paymentMethods, subscriptions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
 import { daysBetween, safeTimeZone, toCalendarDate, todayIn, type CalendarDate } from '@/lib/dates';
+import { isSingleGrapheme } from '@/lib/utils';
 import {
   monthlyEquivalent,
   nextOccurrence,
@@ -244,12 +245,8 @@ export async function saveSubscription(
     return { success: false, error: 'Amount is too large' };
   }
 
-  // One emoji, not a sentence — and "one" means what a person sees, which
-  // code points do not. 🧑‍💻 is three code points, 🏳️‍🌈 is four and 👨‍👩‍👧 is five,
-  // so counting them rejects half the emoji keyboard while still accepting
-  // "ab". Intl.Segmenter counts graphemes, which is the thing being limited.
   const emoji = clean(input.emoji);
-  if (emoji && [...new Intl.Segmenter().segment(emoji)].length > 1) {
+  if (emoji && !isSingleGrapheme(emoji)) {
     return { success: false, error: 'Use a single emoji' };
   }
 

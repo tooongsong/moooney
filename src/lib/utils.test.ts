@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDate, toDateInputValue } from './utils.ts';
+import { formatDate, isSingleGrapheme, toDateInputValue } from './utils.ts';
 
 // Regression tests for the off-by-one date bug.
 //
@@ -40,4 +40,40 @@ test('a date at the start of a year does not fall into the previous one', () => 
 test('a leap day survives the round trip', () => {
   assert.equal(toDateInputValue('2028-02-29'), '2028-02-29');
   assert.equal(formatDate('2028-02-29', { day: 'numeric', month: 'short' }), 'Feb 29');
+});
+
+test('a joined emoji is one grapheme, however many code points it is made of', () => {
+  // Each of these was rejected by the code-point rule this replaced. The
+  // counts are what Array.from would have returned.
+  for (const [emoji, codePoints] of [
+    ['🧑‍💻', 3],   // zero-width joiner
+    ['🏳️‍🌈', 4],   // flag + variation selector + ZWJ
+    ['👨‍👩‍👧', 5],   // two joiners
+    ['1️⃣', 3],   // keycap
+    ['🏋️‍♀️', 5],   // gender sign, presentation selectors
+    ['👍🏽', 2],   // skin-tone modifier
+    ['🇯🇵', 2],   // regional indicator pair
+  ] as const) {
+    assert.equal(Array.from(emoji).length, codePoints, `${emoji} code points`);
+    assert.equal(isSingleGrapheme(emoji), true, `${emoji} should be one grapheme`);
+  }
+});
+
+test('two characters are two graphemes, emoji or not', () => {
+  for (const two of ['🎬🎵', 'ab', '🧑‍💻🧑‍💻', '1️⃣2️⃣', 'a🎵']) {
+    assert.equal(isSingleGrapheme(two), false, `${two} should not be one grapheme`);
+  }
+});
+
+test('one grapheme means one, not one emoji — a letter passes', () => {
+  // The rule limits how many, not what. The field is optional and labelled
+  // Emoji; a letter there renders as a letter and harms nothing.
+  assert.equal(isSingleGrapheme('a'), true);
+  assert.equal(isSingleGrapheme('字'), true);
+});
+
+test('an empty string is not one grapheme', () => {
+  // The caller guards with `emoji &&`, but the predicate should not claim
+  // that nothing is something.
+  assert.equal(isSingleGrapheme(''), false);
 });
