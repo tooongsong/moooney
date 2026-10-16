@@ -150,6 +150,7 @@ export async function deleteAllData(): Promise<{ success: boolean; error?: strin
     revalidatePath('/subscriptions');
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    console.error('[settings] deleteAllData failed:', error);
+    return { success: false, error: 'Could not delete your data. Please try again.' };
   }
 }

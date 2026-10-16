@@ -237,17 +237,7 @@ export async function saveSubscription(
     return { success: false, error: 'Use a single emoji' };
   }
 
-  // An account id arriving from the client is not evidence the caller owns
-  // that account. RLS does not apply on this path, so the check is ours.
   const paymentMethodId = clean(input.paymentMethodId);
-  if (paymentMethodId) {
-    const [owned] = await db.query.paymentMethods.findMany({
-      where: and(eq(paymentMethods.id, paymentMethodId), eq(paymentMethods.userId, user.id)),
-      columns: { id: true },
-      limit: 1,
-    });
-    if (!owned) return { success: false, error: 'Account not found' };
-  }
 
   const values = {
     name,
@@ -263,6 +253,21 @@ export async function saveSubscription(
   };
 
   try {
+    // An account id arriving from the client is not evidence the caller owns
+    // that account. RLS does not apply on this path, so the check is ours.
+    //
+    // Inside the try, because it is a database call: outside it, a connection
+    // failure here would reject the action rather than return a result the
+    // form can show, and the user would get a 500 instead of a message.
+    if (paymentMethodId) {
+      const [owned] = await db.query.paymentMethods.findMany({
+        where: and(eq(paymentMethods.id, paymentMethodId), eq(paymentMethods.userId, user.id)),
+        columns: { id: true },
+        limit: 1,
+      });
+      if (!owned) return { success: false, error: 'Account not found' };
+    }
+
     if (input.id) {
       const res = await db
         .update(subscriptions)
@@ -281,7 +286,7 @@ export async function saveSubscription(
   } catch (error) {
     // Drizzle's message carries the entire failed statement. Log that where it
     // is useful and hand the user something they can act on.
-    console.error('[subscriptions] write failed:', error);
+    console.error('[subscriptions] saveSubscription failed:', error);
     return { success: false, error: 'Could not save. Please try again.' };
   }
 }
@@ -290,7 +295,6 @@ export async function setSubscriptionStatus(
   id: string,
   status: SubscriptionStatus,
 ): Promise<{ success: boolean; error?: string }> {
-  // Note: `sql` must be in this file's drizzle import for the coalesce below.
   const user = await getUser();
   if (!SUBSCRIPTION_STATUSES.includes(status)) return { success: false, error: 'Unknown status' };
 
@@ -322,8 +326,8 @@ export async function setSubscriptionStatus(
   } catch (error) {
     // Drizzle's message carries the entire failed statement. Log that where it
     // is useful and hand the user something they can act on.
-    console.error('[subscriptions] write failed:', error);
-    return { success: false, error: 'Could not save. Please try again.' };
+    console.error('[subscriptions] setSubscriptionStatus failed:', error);
+    return { success: false, error: 'Could not update. Please try again.' };
   }
 }
 
@@ -340,8 +344,8 @@ export async function deleteSubscription(id: string): Promise<{ success: boolean
   } catch (error) {
     // Drizzle's message carries the entire failed statement. Log that where it
     // is useful and hand the user something they can act on.
-    console.error('[subscriptions] write failed:', error);
-    return { success: false, error: 'Could not save. Please try again.' };
+    console.error('[subscriptions] deleteSubscription failed:', error);
+    return { success: false, error: 'Could not delete. Please try again.' };
   }
 }
 
