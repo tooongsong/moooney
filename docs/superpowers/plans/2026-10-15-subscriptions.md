@@ -1411,7 +1411,9 @@ export function firstGrapheme(value: string): string {
 export function parseAmountInput(value: string): number {
   const cleaned = value.replace(/[$\s]/g, '');
   if (cleaned === '') return NaN;
-  const grouped = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(cleaned);
+  // [1-9], not \d: "0,500" is 0.5 to a decimal-comma reader, and read as
+  // grouping it would be 500.
+  const grouped = /^[1-9]\d{0,2}(,\d{3})+(\.\d+)?$/.test(cleaned);
   const plain = /^\d*\.?\d*$/.test(cleaned);
   if (!grouped && !plain) return NaN;
   // Number, not parseFloat: "." and "" become NaN rather than quietly
@@ -1490,6 +1492,18 @@ test('a comma is only a thousands separator, never a decimal point', () => {
   // Real grouping still reads.
   assert.equal(parseAmountInput('12,345.67'), 12345.67);
   assert.equal(parseAmountInput('1,234,567.89'), 1234567.89);
+});
+
+test('a thousands group never starts with zero', () => {
+  // "0,500" is 0.5 to a decimal-comma reader. Read as grouping it would be 500,
+  // and no number is written with a thousands separator after a leading zero.
+  for (const bad of ['0,500', '0,001', '0,999', '00,100', '007,000', '000,000', '0,000.5']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
+  // A leading group that is a real number still reads.
+  assert.equal(parseAmountInput('1,000'), 1000);
+  assert.equal(parseAmountInput('10,001'), 10001);
+  assert.equal(parseAmountInput('100,001'), 100001);
 });
 
 test('an empty string is not one grapheme', () => {
