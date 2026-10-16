@@ -48,7 +48,9 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // The timestamp, not just a boolean: arming and confirming are the same
+  // button in the same place, so a double-click would otherwise delete.
+  const [armedDeleteAt, setArmedDeleteAt] = useState<number | null>(null);
   const [more, setMore] = useState(false);
 
   const [name, setName] = useState(subscription?.name ?? '');
@@ -77,60 +79,86 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
       setWebsite(subscription?.website ?? '');
       setNotes(subscription?.notes ?? '');
     } else {
-      setConfirmingDelete(false);
+      setArmedDeleteAt(null);
       setMore(false);
     }
   }
 
+  // try/finally on all three handlers: the actions catch database errors and
+  // return { success: false }, but they cannot catch the request itself
+  // failing — offline, or a stale bundle in this PWA calling an action from
+  // an older deploy. Without the finally, `saving` stays true, every control
+  // stays disabled behind a spinner, and reopening does not clear it.
   async function handleSave() {
-    setSaving(true);
-    const res = await saveSubscription({
-      id: subscription?.id,
-      name,
-      amount: parseAmountInput(amount),
-      cycle,
-      anchorDate,
-      emoji,
-      category: category === NONE ? null : category,
-      paymentMethodId: accountId === NONE ? null : accountId,
-      website,
-      notes,
-    });
-    setSaving(false);
-    if (!res.success) {
-      toast.error(res.error);
+    // Said before the action, because the action can only answer "greater
+    // than zero" — which reads as nonsense to someone who typed 11,99.
+    if (Number.isNaN(parseAmountInput(amount))) {
+      toast.error('Enter the amount like 11.99 or 1,288.88');
       return;
     }
-    toast.success(subscription ? 'Saved' : 'Added');
-    handleOpenChange(false);
-    router.refresh();
+    setSaving(true);
+    try {
+      const res = await saveSubscription({
+        id: subscription?.id,
+        name,
+        amount: parseAmountInput(amount),
+        cycle,
+        anchorDate,
+        emoji,
+        category: category === NONE ? null : category,
+        paymentMethodId: accountId === NONE ? null : accountId,
+        website,
+        notes,
+      });
+      if (!res.success) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(subscription ? 'Saved' : 'Added');
+      handleOpenChange(false);
+      router.refresh();
+    } catch {
+      toast.error('Could not reach the server. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleStatus(next: SubscriptionStatus) {
     if (!subscription || next === subscription.status) return;
     setSaving(true);
-    const res = await setSubscriptionStatus(subscription.id, next);
-    setSaving(false);
-    if (!res.success) {
-      toast.error(res.error || 'Could not change status');
-      return;
+    try {
+      const res = await setSubscriptionStatus(subscription.id, next);
+      if (!res.success) {
+        toast.error(res.error || 'Could not change status');
+        return;
+      }
+      handleOpenChange(false);
+      router.refresh();
+    } catch {
+      toast.error('Could not reach the server. Please try again.');
+    } finally {
+      setSaving(false);
     }
-    handleOpenChange(false);
-    router.refresh();
   }
 
   async function handleDelete() {
     if (!subscription) return;
     setSaving(true);
-    const res = await deleteSubscription(subscription.id);
-    setSaving(false);
-    if (!res.success) {
-      toast.error(res.error || 'Could not delete');
-      return;
+    try {
+      const res = await deleteSubscription(subscription.id);
+      if (!res.success) {
+        toast.error(res.error || 'Could not delete');
+        return;
+      }
+      toast.success('Deleted');
+      handleOpenChange(false);
+      router.refresh();
+    } catch {
+      toast.error('Could not reach the server. Please try again.');
+    } finally {
+      setSaving(false);
     }
-    toast.success('Deleted');
-    handleOpenChange(false);
-    router.refresh();
   }
 
   return (
@@ -270,15 +298,21 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
             <button
               type="button"
               disabled={saving}
-              onClick={() => (confirmingDelete ? handleDelete() : setConfirmingDelete(true))}
+              onClick={() => {
+                if (armedDeleteAt === null) {
+                  setArmedDeleteAt(Date.now());
+                } else if (Date.now() - armedDeleteAt > 400) {
+                  handleDelete();
+                }
+              }}
               className="ml-auto text-[10px] font-bold uppercase tracking-widest text-accent hover:opacity-80 disabled:opacity-40"
             >
-              {confirmingDelete ? 'Really delete?' : 'Delete'}
+              {armedDeleteAt !== null ? 'Really delete?' : 'Delete'}
             </button>
           </div>
         )}
 
-        {confirmingDelete && (
+        {armedDeleteAt !== null && (
           <p className="text-[11px] text-ink-faint">
             The payments already recorded stay in History. Only the schedule goes.
           </p>
