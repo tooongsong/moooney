@@ -117,6 +117,20 @@ test('a comma is only a thousands separator, never a decimal point', () => {
   assert.equal(parseAmountInput('1,234,567.89'), 1234567.89);
 });
 
+test('more fraction digits than the column holds are refused, not rounded', () => {
+  // numeric(12,2) would store 11.999 as 12.00 without saying so. Refusing is
+  // the honest answer, and it closes the last silent misread: "1.288" is
+  // 1,288 to a dot-grouping reader and would otherwise store as $1.29.
+  for (const bad of ['11.999', '1.288', '12.345', '100.000', '1,288.888']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
+  // One or two, or none at all, still read.
+  assert.equal(parseAmountInput('.5'), 0.5);
+  assert.equal(parseAmountInput('11.9'), 11.9);
+  assert.equal(parseAmountInput('11.99'), 11.99);
+  assert.equal(parseAmountInput('5.'), 5);
+});
+
 test('a separator is read by where it sits, not deleted wherever it is found', () => {
   // Deleting every space and $ is the forgiving-looking choice, and it is the
   // same hundredfold-upward error as the comma one: "11 99" fused into 1199.

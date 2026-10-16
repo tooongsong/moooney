@@ -96,8 +96,12 @@ export function parseAmountInput(value: string): number {
   if (cleaned === '') return NaN;
   // [1-9], not \d: "0,500" is 0.5 to a decimal-comma reader, and read as
   // grouping it would be 500.
-  const grouped = /^[1-9]\d{0,2}(,\d{3})+(\.\d+)?$/.test(cleaned);
-  const plain = /^\d*\.?\d*$/.test(cleaned);
+  // Two fraction digits, because that is what numeric(12,2) holds. Accepting
+  // more means silently rounding what someone typed, and it is also how a
+  // dot-grouped integer gets in: "1.288" is 1,288 in half of Europe and
+  // would store as $1.29.
+  const grouped = /^[1-9]\d{0,2}(,\d{3})+(\.\d{1,2})?$/.test(cleaned);
+  const plain = /^\d*\.?\d{0,2}$/.test(cleaned);
   if (!grouped && !plain) return NaN;
   // Number, not parseFloat: "." and "" become NaN rather than quietly
   // succeeding at something.
