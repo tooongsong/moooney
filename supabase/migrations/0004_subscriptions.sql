@@ -29,14 +29,15 @@ create table if not exists subscriptions (
 
 alter table subscriptions enable row level security;
 
--- Guarded, unlike the earlier migrations: `create policy` has no IF NOT
--- EXISTS, and this file runs as one transaction, so an unguarded one makes
--- re-running the whole migration abort before anything after it.
+-- Guarded: `create policy` has no IF NOT EXISTS, and this file runs as one
+-- transaction, so an unguarded one aborts a re-run before anything after it.
 do $$
 begin
   if not exists (
     select 1 from pg_policies
-     where tablename = 'subscriptions' and policyname = 'own subscriptions'
+     where schemaname = 'public'
+       and tablename = 'subscriptions'
+       and policyname = 'own subscriptions'
   ) then
     create policy "own subscriptions" on subscriptions for all using (auth.uid() = user_id);
   end if;
@@ -46,9 +47,28 @@ create index if not exists subscriptions_user_idx on subscriptions (user_id);
 
 -- The payment link. `on delete set null`, not cascade: deleting a subscription
 -- must never delete a real expense — the money was still spent.
+--
+-- The foreign key is added separately, and guarded. An inline REFERENCES on an
+-- ADD COLUMN IF NOT EXISTS is not covered by the IF NOT EXISTS: Postgres lifts
+-- it into its own ADD CONSTRAINT subcommand during parse analysis, so a second
+-- run skips the column and then adds transactions_subscription_id_fkey1 beside
+-- the first. 0002 has the same latent bug.
 alter table transactions
-  add column if not exists subscription_id     text references subscriptions(id) on delete set null,
+  add column if not exists subscription_id     text,
   add column if not exists subscription_period date;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'transactions'::regclass
+       and conname = 'transactions_subscription_id_fkey'
+  ) then
+    alter table transactions
+      add constraint transactions_subscription_id_fkey
+      foreign key (subscription_id) references subscriptions(id) on delete set null;
+  end if;
+end $$;
 
 create index if not exists transactions_subscription_idx
   on transactions (subscription_id) where subscription_id is not null;
