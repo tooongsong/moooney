@@ -43,7 +43,7 @@ export function ExportButtons() {
   }
 
   async function handleDelete() {
-    if (!confirm('Delete all transactions and categories? This cannot be undone.')) return;
+    if (!confirm('Delete all transactions, transfers, subscriptions and categories? This cannot be undone.')) return;
     setDeleteLoading(true);
     const res = await deleteAllData();
     setDeleteLoading(false);

@@ -4,7 +4,7 @@ import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { db } from '@/db';
-import { paymentMethods, transactions, transfers, customCategories } from '@/db/schema';
+import { paymentMethods, transactions, subscriptions, transfers, customCategories } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
 import { safeTimeZone } from '@/lib/dates';
 
@@ -143,9 +143,11 @@ export async function deleteAllData(): Promise<{ success: boolean; error?: strin
   const user = await getUser();
   try {
     await db.delete(transactions).where(eq(transactions.userId, user.id));
+    await db.delete(subscriptions).where(eq(subscriptions.userId, user.id));
     await db.delete(transfers).where(eq(transfers.userId, user.id));
     await db.delete(customCategories).where(eq(customCategories.userId, user.id));
     revalidatePath('/');
+    revalidatePath('/subscriptions');
     return { success: true };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
