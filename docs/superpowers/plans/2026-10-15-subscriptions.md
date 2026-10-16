@@ -1301,7 +1301,6 @@ export async function setSubscriptionStatus(
   id: string,
   status: SubscriptionStatus,
 ): Promise<{ success: boolean; error?: string }> {
-  // Note: `sql` must be in this file's drizzle import for the coalesce below.
   const user = await getUser();
   if (!SUBSCRIPTION_STATUSES.includes(status)) return { success: false, error: 'Unknown status' };
 
