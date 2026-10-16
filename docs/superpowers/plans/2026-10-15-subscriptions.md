@@ -1152,32 +1152,38 @@ export async function getAccountOptions(): Promise<
   { id: string; name: string; archived: boolean }[]
 > {
   const user = await getUser();
-  const rows = await db.query.paymentMethods.findMany({
-    where: and(
-      eq(paymentMethods.userId, user.id),
-      or(
-        isNull(paymentMethods.archivedAt),
-        // An archived account that a subscription still pays from stays in the
-        // picker. Deleting such an account archives it rather than removing
-        // it, on the promise that it stays findable — and if the picker
-        // dropped it, opening that subscription would show an empty "Pays
-        // from" and clear the link on the next save.
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(subscriptions)
-            .where(
-              and(
-                eq(subscriptions.userId, user.id),
-                eq(subscriptions.paymentMethodId, paymentMethods.id),
+  // The core builder, not db.query: the relational API aliases the table as
+  // "paymentMethods", which hides the name "payment_methods" — and the
+  // correlated subquery below refers to the table by that name, so Postgres
+  // rejects it (42P01, "invalid reference to FROM-clause entry").
+  const rows = await db
+    .select({ id: paymentMethods.id, name: paymentMethods.name, archivedAt: paymentMethods.archivedAt })
+    .from(paymentMethods)
+    .where(
+      and(
+        eq(paymentMethods.userId, user.id),
+        or(
+          isNull(paymentMethods.archivedAt),
+          // An archived account that a subscription still pays from stays in the
+          // picker. Deleting such an account archives it rather than removing
+          // it, on the promise that it stays findable — and if the picker
+          // dropped it, opening that subscription would show an empty "Pays
+          // from" and clear the link on the next save.
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(subscriptions)
+              .where(
+                and(
+                  eq(subscriptions.userId, user.id),
+                  eq(subscriptions.paymentMethodId, paymentMethods.id),
+                ),
               ),
-            ),
+          ),
         ),
       ),
-    ),
-    columns: { id: true, name: true, archivedAt: true },
-    orderBy: [asc(paymentMethods.name)],
-  });
+    )
+    .orderBy(asc(paymentMethods.name));
   return rows.map(({ id, name, archivedAt }) => ({ id, name, archived: archivedAt !== null }));
 }
 
@@ -1223,11 +1229,30 @@ export async function saveSubscription(
     return { success: false, error: 'Enter a valid first payment date' };
   }
 
+  // numeric(12,2) tops out at 9,999,999,999.99. Past that Postgres rejects the
+  // write with an overflow error the user can do nothing with, so catch it
+  // here where there is something useful to say.
+  if (input.amount > 9_999_999_999.99) {
+    return { success: false, error: 'Amount is too large' };
+  }
+
   // One emoji, not a sentence. Array.from counts characters, not UTF-16 units,
   // so a flag or a skin-tone emoji is not cut in half.
   const emoji = clean(input.emoji);
   if (emoji && Array.from(emoji).length > 2) {
     return { success: false, error: 'Use a single emoji' };
+  }
+
+  // An account id arriving from the client is not evidence the caller owns
+  // that account. RLS does not apply on this path, so the check is ours.
+  const paymentMethodId = clean(input.paymentMethodId);
+  if (paymentMethodId) {
+    const [owned] = await db.query.paymentMethods.findMany({
+      where: and(eq(paymentMethods.id, paymentMethodId), eq(paymentMethods.userId, user.id)),
+      columns: { id: true },
+      limit: 1,
+    });
+    if (!owned) return { success: false, error: 'Account not found' };
   }
 
   const values = {
@@ -1237,7 +1262,7 @@ export async function saveSubscription(
     cycle: input.cycle,
     anchorDate,
     category: clean(input.category),
-    paymentMethodId: clean(input.paymentMethodId),
+    paymentMethodId,
     website: clean(input.website),
     notes: clean(input.notes),
     updatedAt: new Date(),
@@ -1260,7 +1285,10 @@ export async function saveSubscription(
     revalidate();
     return { success: true, id };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    // Drizzle's message carries the entire failed statement. Log that where it
+    // is useful and hand the user something they can act on.
+    console.error('[subscriptions] write failed:', error);
+    return { success: false, error: 'Could not save. Please try again.' };
   }
 }
 
@@ -1298,7 +1326,10 @@ export async function setSubscriptionStatus(
     revalidate();
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    // Drizzle's message carries the entire failed statement. Log that where it
+    // is useful and hand the user something they can act on.
+    console.error('[subscriptions] write failed:', error);
+    return { success: false, error: 'Could not save. Please try again.' };
   }
 }
 
@@ -1313,7 +1344,10 @@ export async function deleteSubscription(id: string): Promise<{ success: boolean
     revalidate();
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    // Drizzle's message carries the entire failed statement. Log that where it
+    // is useful and hand the user something they can act on.
+    console.error('[subscriptions] write failed:', error);
+    return { success: false, error: 'Could not save. Please try again.' };
   }
 }
 
@@ -3111,7 +3145,10 @@ export async function linkTransaction(
     revalidatePath('/history');
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    // Drizzle's message carries the entire failed statement. Log that where it
+    // is useful and hand the user something they can act on.
+    console.error('[subscriptions] write failed:', error);
+    return { success: false, error: 'Could not save. Please try again.' };
   }
 }
 
@@ -3129,7 +3166,10 @@ export async function unlinkTransaction(
     revalidatePath('/history');
     return { success: true };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    // Drizzle's message carries the entire failed statement. Log that where it
+    // is useful and hand the user something they can act on.
+    console.error('[subscriptions] write failed:', error);
+    return { success: false, error: 'Could not save. Please try again.' };
   }
 }
 ```
@@ -3379,7 +3419,13 @@ Reading the queries proves it for all rows, which is the stronger claim:
 grep -rln "subscriptions" src/app/actions/
 ```
 
-Expected: `src/app/actions/subscriptions.ts` and nothing else. If `overview.ts`, `history.ts`, `accounts.ts`, `transactions.ts`, `manage.ts` or `time.ts` appears, something reads the new table into a figure and that is a Critical finding — except `manage.ts`, which Task 2 added a deletion guard to and which must reference it only in `deletePaymentMethod`. Check that one by eye.
+Expected exactly three files, and each for a reason you can name:
+
+- `subscriptions.ts` — the feature's own actions.
+- `manage.ts` — only inside `deletePaymentMethod`, where Task 2 added the archive guard.
+- `settings.ts` — only inside `deleteAllData`, where Task 3 added the wipe.
+
+Check the two guests by eye. If `overview.ts`, `history.ts`, `accounts.ts`, `transactions.ts` or `time.ts` appears, something reads the new table into a spending figure, and that is a Critical finding.
 
 Then the reverse direction — nothing in the subscriptions action file writes to a table the other surfaces read:
 
