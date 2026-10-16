@@ -698,7 +698,7 @@ create table if not exists subscriptions (
   status            text not null default 'active',    -- active | paused | ended
   stopped_on        date,                     -- the day billing stopped, paused or ended
   category          text,                              -- a name from getAllCategories()
-  payment_method_id text references payment_methods(id) on delete set null,
+  payment_method_id text references payment_methods(id),
   website           text,
   notes             text,
   created_at        timestamptz not null default now(),
@@ -706,35 +706,22 @@ create table if not exists subscriptions (
 );
 
 alter table subscriptions enable row level security;
-create policy "own subscriptions" on subscriptions for all using (auth.uid() = user_id);
+
+-- Guarded, unlike the earlier migrations: `create policy` has no IF NOT
+-- EXISTS, and this file runs as one transaction, so an unguarded one makes
+-- re-running the whole migration abort before anything after it.
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+     where tablename = 'subscriptions' and policyname = 'own subscriptions'
+  ) then
+    create policy "own subscriptions" on subscriptions for all using (auth.uid() = user_id);
+  end if;
+end $$;
 
 create index if not exists subscriptions_user_idx on subscriptions (user_id);
 
--- The account link is `on delete set null` for the same reason as the one
--- below: deleting an account must not take a subscription with it, and must
--- not be blocked by one either. `deletePaymentMethod` hard-deletes an account
--- that has no transactions, and the default NO ACTION would turn that into a
--- raw foreign-key error the moment any subscription pointed at it.
---
--- Re-stated as an alter because the create above is `if not exists`, so a
--- database that already has the table never sees the clause.
-do $$
-declare c text;
-begin
-  select conname into c
-    from pg_constraint
-   where conrelid = 'subscriptions'::regclass
-     and contype = 'f'
-     and conkey = array[(select attnum from pg_attribute
-                          where attrelid = 'subscriptions'::regclass
-                            and attname = 'payment_method_id')];
-  if c is not null and (select confdeltype from pg_constraint where conname = c) <> 'n' then
-    execute format('alter table subscriptions drop constraint %I', c);
-    execute format('alter table subscriptions add constraint %I
-                    foreign key (payment_method_id) references payment_methods(id)
-                    on delete set null', c);
-  end if;
-end $$;
 
 -- The payment link. `on delete set null`, not cascade: deleting a subscription
 -- must never delete a real expense — the money was still spent.
@@ -791,7 +778,9 @@ await sql.end();
 "
 ```
 
-Expected: `confdeltype` is `n` (SET NULL) for `subscriptions.payment_method_id` and for `transactions.subscription_id`.
+Expected: `confdeltype` is `n` (SET NULL) for `transactions.subscription_id`, and `a` (NO ACTION) for `subscriptions.payment_method_id`.
+
+That `a` is deliberate. `on delete set null` there would let an account be deleted out from under a subscription, silently clearing a field the user filled in. Step 6 guards it in application code instead, the way the account's transactions are already guarded.
 
 RLS without a policy denies everything, and a policy without RLS enforces nothing. Both lines must appear.
 
@@ -813,8 +802,7 @@ export const subscriptions = pgTable('subscriptions', {
   status:          text('status', { enum: ['active', 'paused', 'ended'] }).notNull().default('active'),
   stoppedOn:       date('stopped_on', { mode: 'string' }),
   category:        text('category'),
-  paymentMethodId: text('payment_method_id')
-    .references(() => paymentMethods.id, { onDelete: 'set null' }),
+  paymentMethodId: text('payment_method_id').references(() => paymentMethods.id),
   website:         text('website'),
   notes:           text('notes'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
@@ -831,7 +819,8 @@ Then add two fields to the existing `transactions` table, after `receiptUrl`:
   // Which subscription this payment settled, and which occurrence of it. The
   // link lives here because this row is the payment. Neither column is in any
   // explicit `columns:` projection, so no existing query's payload changes.
-  subscriptionId:     text('subscription_id').references(() => subscriptions.id),
+  subscriptionId:     text('subscription_id')
+    .references(() => subscriptions.id, { onDelete: 'set null' }),
   subscriptionPeriod: date('subscription_period', { mode: 'string' }),
 ```
 
@@ -840,10 +829,92 @@ Then add two fields to the existing `transactions` table, after `receiptUrl`:
 Run: `npx tsc --noEmit && npm run build`
 Expected: both clean. The build is the real check — it proves the new table did not break drizzle's relational query inference for the existing ones.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Stop an account being deleted out from under a subscription**
+
+`deletePaymentMethod` hard-deletes an account that has no transactions. With the new foreign key that becomes a raw constraint error — an unhandled 500, since the function has no try/catch — the first time a subscription points at that account.
+
+The function already has the right answer for this shape of problem one branch up: an account with transactions is archived instead of deleted. Give subscriptions the same treatment.
+
+In `src/app/actions/manage.ts`, add `subscriptions` to the `@/db/schema` import, then replace the body of `deletePaymentMethod`:
+
+```ts
+export async function deletePaymentMethod(id: string) {
+  const account = await db.query.paymentMethods.findFirst({
+    where: eq(paymentMethods.id, id),
+    columns: { id: true },
+  });
+
+  if (account) {
+    const linked = await db.query.transactions.findFirst({
+      where: eq(transactions.paymentMethodId, account.id),
+      columns: { id: true },
+    });
+    if (linked) {
+      // Has transactions -> archive instead of delete
+      return archivePaymentMethod(id);
+    }
+
+    // And the same for a subscription that pays from it. The foreign key
+    // would otherwise reject the delete outright, and making the key
+    // `on delete set null` would be worse: the account would vanish and the
+    // subscription would quietly lose a field the user filled in. Archiving
+    // keeps the account findable and the link intact.
+    const subscribed = await db.query.subscriptions.findFirst({
+      where: eq(subscriptions.paymentMethodId, account.id),
+      columns: { id: true },
+    });
+    if (subscribed) {
+      return archivePaymentMethod(id);
+    }
+  }
+
+  await db.delete(paymentMethods).where(eq(paymentMethods.id, id));
+  revalidateAccounts();
+  return { success: true };
+}
+```
+
+The `columns:` on all three reads is the project's standing rule, and the first two were missing it — a bare `findFirst` on `transactions` pulls every column of the row it finds, receipt image included.
+
+- [ ] **Step 7: Prove the guard works, against the real database**
+
+There is no unit test for a server action that talks to Postgres, so verify it the way the rest of this plan does. Create a throwaway account with no transactions, point a subscription at it, and confirm that deleting it archives rather than throwing.
+
+Seed:
 
 ```bash
-git add supabase/migrations/0004_subscriptions.sql src/db/schema.ts
+node --env-file=.env.local --input-type=module -e "
+import postgres from 'postgres';
+const sql = postgres(process.env.DATABASE_URL, { prepare: false });
+const [u] = await sql.unsafe(\"select user_id from payment_methods limit 1\").simple();
+await sql.unsafe(\`insert into payment_methods (id,user_id,name) values ('plan-t2-acct','\${u.user_id}','Throwaway')\`).simple();
+await sql.unsafe(\`insert into subscriptions (id,user_id,name,amount,cycle,anchor_date,payment_method_id)
+  values ('plan-t2-sub','\${u.user_id}','Probe',1,'monthly','2026-01-01','plan-t2-acct')\`).simple();
+console.log('seeded');
+await sql.end();
+"
+```
+
+Then, in the signed-in app, open Settings and delete the Throwaway account. It must archive, not error. Confirm and clean up:
+
+```bash
+node --env-file=.env.local --input-type=module -e "
+import postgres from 'postgres';
+const sql = postgres(process.env.DATABASE_URL, { prepare: false });
+console.table(await sql.unsafe(\"select id, archived_at is not null as archived from payment_methods where id='plan-t2-acct'\").simple());
+await sql.unsafe(\"delete from subscriptions where id='plan-t2-sub'\").simple();
+await sql.unsafe(\"delete from payment_methods where id='plan-t2-acct'\").simple();
+console.log('cleaned');
+await sql.end();
+"
+```
+
+Expected: one row, `archived: true`. Then both probe rows are gone.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add supabase/migrations/0004_subscriptions.sql src/db/schema.ts src/app/actions/manage.ts
 git commit -m "Add the subscriptions table and the payment link
 
 The link is two nullable columns on transactions rather than a join table: the
