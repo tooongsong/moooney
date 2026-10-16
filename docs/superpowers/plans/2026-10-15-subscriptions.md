@@ -1397,18 +1397,26 @@ export function firstGrapheme(value: string): string {
 /**
  * Read a typed money amount, or NaN.
  *
- * `parseFloat` is the trap here: it stops at the first character it cannot
+ * `parseFloat` is the first trap: it stops at the first character it cannot
  * read, so "1,288.88" becomes 1 — valid, positive, past every guard, and
- * silently a thousand times too small. Since the app formats with thousands
- * separators, typing one back in is the obvious thing to do.
+ * silently a thousand times too small. Since the app prints amounts with
+ * thousands separators, typing one back in is the obvious thing to do.
  *
- * Grouping separators and a currency symbol are stripped; anything else
- * returns NaN, which the callers already reject.
+ * Stripping every comma is the second trap, and the worse one, because it
+ * errs upward: "11,99" is how a good part of the world writes 11.99, and it
+ * would read as 1199. So a comma is accepted only where a thousands
+ * separator can legally go — groups of exactly three digits, before the
+ * decimal point — and anything else returns NaN, which the callers reject.
  */
 export function parseAmountInput(value: string): number {
-  const cleaned = value.replace(/[$,\s]/g, '');
-  if (cleaned === '' || !/^\d*\.?\d*$/.test(cleaned)) return NaN;
-  return Number(cleaned);
+  const cleaned = value.replace(/[$\s]/g, '');
+  if (cleaned === '') return NaN;
+  const grouped = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(cleaned);
+  const plain = /^\d*\.?\d*$/.test(cleaned);
+  if (!grouped && !plain) return NaN;
+  // Number, not parseFloat: "." and "" become NaN rather than quietly
+  // succeeding at something.
+  return Number(cleaned.replace(/,/g, ''));
 }
 ```
 
@@ -1468,9 +1476,20 @@ test('parseAmountInput reads what a person types, including the separators we pr
 });
 
 test('parseAmountInput refuses anything that is not a number', () => {
-  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5']) {
+  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5', '.']) {
     assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
   }
+});
+
+test('a comma is only a thousands separator, never a decimal point', () => {
+  // Stripping every comma errs upward, which is the dangerous direction:
+  // "11,99" is 11.99 to much of the world and would have read as 1199.
+  for (const bad of ['11,99', '1.288,88', '1,2,3', '1,23', '1,2345', ',99', '1,']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
+  // Real grouping still reads.
+  assert.equal(parseAmountInput('12,345.67'), 12345.67);
+  assert.equal(parseAmountInput('1,234,567.89'), 1234567.89);
 });
 
 test('an empty string is not one grapheme', () => {
@@ -2453,7 +2472,7 @@ Nothing in this plan writes to the database, so the form cannot be driven end to
 **Validation, in the harness.** Most rejections in `saveSubscription` happen before any database call, so the messages are reachable by reading the function and matching them to what the form can produce. Two do not, and they are marked:
 
 1. Empty name → `Name is required`.
-2. Amount `0`, `-5`, `abc` or `1.2.3` → `Amount must be greater than zero`, because `parseAmountInput` returns NaN for all but the first two and `Number.isFinite(NaN)` is false. **`1,288.88` must save as 1288.88, not 1.00** — that is the case `parseFloat` got wrong, and it is the one worth typing by hand.
+2. Amount `0`, `-5`, `abc` or `1.2.3` → `Amount must be greater than zero`. Only `0` survives `parseAmountInput` as a finite number; the rest come back NaN, including `-5`, since a minus sign is not part of the grammar. The message is the same either way. **`1,288.88` must save as 1288.88, not 1.00, and `11,99` must be rejected rather than saved as 1199** — the first is what `parseFloat` got wrong and the second is what stripping commas got wrong.
 3. A cycle outside the three → `Pick a billing cycle`. Unreachable from the form's own `Select`, which is the point: it guards the action, not the widget.
 4. Date `2026-02-30` → `toCalendarDate` throws and the action answers `Enter a valid first payment date`. Task 1 unit-tests that throw directly, so this is about the catch being there.
 5. More than one emoji → `Use a single emoji`, counted with `Intl.Segmenter` so that 🧑‍💻 and 🏳️‍🌈 pass as the single characters a person sees them as, while `🎬🎵` and `ab` do not.
