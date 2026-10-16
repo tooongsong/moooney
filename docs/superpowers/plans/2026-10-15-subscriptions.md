@@ -310,6 +310,23 @@ test('a weekly window opening 2 days into the cycle does not emit the occurrence
   assert.deepEqual(out, ['2026-01-08', '2026-01-15']);
 });
 
+test('a far-future weekly anchor terminates instead of running away', () => {
+  // The string compare this loop used to end on is false past year 9999:
+  // "10000-01-07" <= "9999-12-31" sorts true. The old loop produced 4.7
+  // million dates here; the window holds two.
+  const out = occurrencesBetween(
+    sub({ anchorDate: '9999-12-16', cycle: 'weekly' }), '9999-12-01', '9999-12-31', TODAY);
+  assert.deepEqual(out, ['9999-12-16', '9999-12-23', '9999-12-30']);
+});
+
+test('a weekly window that ends before the anchor yields nothing, not everything', () => {
+  // kEnd below kStart has to mean an empty range, not an unbounded one.
+  assert.deepEqual(
+    occurrencesBetween(sub({ anchorDate: '2026-06-10', cycle: 'weekly' }),
+                       '2026-01-01', '2026-05-31', TODAY),
+    []);
+});
+
 test('a weekly subscription weeks into its life still lands on its own weekday', () => {
   // Every other weekly window opens within a week of the anchor, where the 7
   // in k cannot matter. Months in, a wrong divisor lands on a wrong weekday —
@@ -553,11 +570,20 @@ export function occurrencesBetween(
   const out: CalendarDate[] = [];
 
   if (sub.cycle === 'weekly') {
-    // The first k with anchor + 7k >= lo.
-    let k = Math.max(0, Math.ceil(daysBetween(sub.anchorDate, lo) / 7));
-    for (let d = addDays(sub.anchorDate, 7 * k); d <= hi; k++, d = addDays(sub.anchorDate, 7 * k)) {
-      out.push(d);
-    }
+    // Both bounds computed up front, as integers, the way the monthly and
+    // yearly paths already do.
+    //
+    // The previous version looped while `addDays(anchor, 7k) <= hi`, which
+    // leans on this module's one load-bearing assumption: that zero-padded
+    // dates compare chronologically as strings. That assumption dies at year
+    // 10000, where "10000-01-07" <= "9999-12-31" is true because "1" sorts
+    // before "9" — so the loop never ends. A weekly subscription anchored in
+    // 9999 built 4.7 million dates and 1.9GB before anyone saw a page.
+    //
+    // Integer bounds cannot run away regardless of what the strings do.
+    const kStart = Math.max(0, Math.ceil(daysBetween(sub.anchorDate, lo) / 7));
+    const kEnd = Math.floor(daysBetween(sub.anchorDate, hi) / 7);
+    for (let k = kStart; k <= kEnd; k++) out.push(addDays(sub.anchorDate, 7 * k));
     return out;
   }
 
@@ -2883,7 +2909,8 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   // The year bound is not pedantry: makeCalendarDate does not pad the year,
   // so "0001-05" survives the shape check and produces "1-05-01", which is
   // not a date any column will accept.
-  if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12) || !(year >= 1000)) {
+  if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12)
+      || !(year >= 1000 && year < 9999)) {
     year = Number(today.slice(0, 4));
     month = Number(today.slice(5, 7));
   }
