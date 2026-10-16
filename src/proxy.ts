@@ -44,6 +44,9 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|workbox-.*|icons|splash|api|auth/callback).*)',
+    // dev-preview is the fixture harness. It is deleted in the last task,
+    // along with this exemption; the route also calls notFound() outside
+    // development, so neither guard stands alone.
+    '/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|workbox-.*|icons|splash|api|auth/callback|dev-preview).*)',
   ],
 };
