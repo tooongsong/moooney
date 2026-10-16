@@ -1043,6 +1043,18 @@ function toNum(v: unknown, field?: string): number {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Report a failed write.
+ *
+ * Drizzle puts the entire failed statement in its error message, and these
+ * strings go straight into a toast. The real error belongs in the server log;
+ * the user gets something they can act on, named for what they were doing.
+ */
+function failed(op: string, error: unknown, message: string) {
+  console.error(`[subscriptions] ${op} failed:`, error);
+  return { success: false as const, error: message };
+}
+
 // Named columns, always. notes and website are included because the edit form
 // needs them and the rows are few; created_at and updated_at are not, because
 // nothing renders them.
@@ -1214,7 +1226,9 @@ export async function saveSubscription(
 
   const name = input.name?.trim();
   if (!name) return { success: false, error: 'Name is required' };
-  if (!Number.isFinite(input.amount) || input.amount <= 0) {
+  // Rounded first: the column holds two decimals, so 0.004 would pass this
+  // check and then store as 0.00 — a subscription that costs nothing.
+  if (!Number.isFinite(input.amount) || round2(input.amount) <= 0) {
     return { success: false, error: 'Amount must be greater than zero' };
   }
   if (!SUBSCRIPTION_CYCLES.includes(input.cycle)) {
@@ -1236,10 +1250,12 @@ export async function saveSubscription(
     return { success: false, error: 'Amount is too large' };
   }
 
-  // One emoji, not a sentence. Array.from counts characters, not UTF-16 units,
-  // so a flag or a skin-tone emoji is not cut in half.
+  // One emoji, not a sentence — and "one" means what a person sees, which
+  // code points do not. 🧑‍💻 is three code points, 🏳️‍🌈 is four and 👨‍👩‍👧 is five,
+  // so counting them rejects half the emoji keyboard while still accepting
+  // "ab". Intl.Segmenter counts graphemes, which is the thing being limited.
   const emoji = clean(input.emoji);
-  if (emoji && Array.from(emoji).length > 2) {
+  if (emoji && [...new Intl.Segmenter().segment(emoji)].length > 1) {
     return { success: false, error: 'Use a single emoji' };
   }
 
@@ -1290,10 +1306,7 @@ export async function saveSubscription(
     revalidate();
     return { success: true, id };
   } catch (error) {
-    // Drizzle's message carries the entire failed statement. Log that where it
-    // is useful and hand the user something they can act on.
-    console.error('[subscriptions] saveSubscription failed:', error);
-    return { success: false, error: 'Could not save. Please try again.' };
+    return failed('saveSubscription', error, 'Could not save. Please try again.');
   }
 }
 
@@ -1330,10 +1343,7 @@ export async function setSubscriptionStatus(
     revalidate();
     return { success: true };
   } catch (error) {
-    // Drizzle's message carries the entire failed statement. Log that where it
-    // is useful and hand the user something they can act on.
-    console.error('[subscriptions] setSubscriptionStatus failed:', error);
-    return { success: false, error: 'Could not update. Please try again.' };
+    return failed('setSubscriptionStatus', error, 'Could not update. Please try again.');
   }
 }
 
@@ -1348,10 +1358,7 @@ export async function deleteSubscription(id: string): Promise<{ success: boolean
     revalidate();
     return { success: true };
   } catch (error) {
-    // Drizzle's message carries the entire failed statement. Log that where it
-    // is useful and hand the user something they can act on.
-    console.error('[subscriptions] deleteSubscription failed:', error);
-    return { success: false, error: 'Could not delete. Please try again.' };
+    return failed('deleteSubscription', error, 'Could not delete. Please try again.');
   }
 }
 
@@ -2126,8 +2133,12 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
                   <Label htmlFor="sub-emoji">Emoji</Label>
+                  {/* No maxLength: it counts UTF-16 units, and 🏋️‍♀️ is seven of
+                      them, so the cap would cut the sequence mid-joiner and
+                      leave a mojibake fragment. The action validates by
+                      grapheme instead. */}
                   <Input id="sub-emoji" value={emoji} onChange={(e) => setEmoji(e.target.value)}
-                         placeholder="🎵" maxLength={4} />
+                         placeholder="🎵" />
                 </div>
                 <div className="grid gap-1.5">
                   <Label htmlFor="sub-category">Category</Label>
@@ -2324,13 +2335,15 @@ Saving from the harness will fail — there is no session, and no session means 
 
 Nothing in this plan writes to the database, so the form cannot be driven end to end here. Three of its four risk areas can still be checked without a write.
 
-**Validation, in the harness.** Every rejection in `saveSubscription` happens before any database call, so the messages are reachable by reading the function and matching them to what the form can produce:
+**Validation, in the harness.** Most rejections in `saveSubscription` happen before any database call, so the messages are reachable by reading the function and matching them to what the form can produce. Two do not, and they are marked:
 
 1. Empty name → `Name is required`.
 2. Amount `0`, `-5`, or `abc` → `Amount must be greater than zero`. Confirm `parseFloat('abc')` is `NaN` and `Number.isFinite(NaN)` is false, so the guard catches it rather than writing a `NaN` amount.
 3. A cycle outside the three → `Pick a billing cycle`. Unreachable from the form's own `Select`, which is the point: it guards the action, not the widget.
 4. Date `2026-02-30` → `toCalendarDate` throws and the action answers `Enter a valid first payment date`. Task 1 unit-tests that throw directly, so this is about the catch being there.
-5. Emoji longer than two characters → `Use a single emoji`, counted with `Array.from` so a flag or a skin-tone modifier is not cut in half.
+5. More than one emoji → `Use a single emoji`, counted with `Intl.Segmenter` so that 🧑‍💻 and 🏳️‍🌈 pass as the single characters a person sees them as, while `🎬🎵` and `ab` do not.
+6. An amount of 10,000,000,000 or more → `Amount is too large`, before the write, because `numeric(12,2)` cannot hold it.
+7. **After a database call:** an account id the caller does not own → `Account not found`. Editing a subscription that is not theirs → `Subscription not found`. Both are reachable only with a forged id, so there is nothing to click in the harness — read them instead and confirm each lookup filters on `user.id`.
 
 **State transitions, by reading.** Confirm in `setSubscriptionStatus` that `active` nulls `stoppedOn`, that the other two use `coalesce(stopped_on, today)` so the first stop wins, and that the `where` filters on `userId` as well as `id`.
 
@@ -3138,16 +3151,17 @@ export async function linkTransaction(
     return { success: false, error: 'Not a valid period' };
   }
 
-  // Both conditions on the subscription too: without the ownership check a
-  // crafted id could attach someone else's subscription to this transaction.
-  const [owned] = await db.query.subscriptions.findMany({
-    where: and(eq(subscriptions.id, subscriptionId), eq(subscriptions.userId, user.id)),
-    columns: { id: true },
-    limit: 1,
-  });
-  if (!owned) return { success: false, error: 'Subscription not found' };
-
   try {
+    // Inside the try, because it is a database call — the same reason
+    // saveSubscription's ownership lookup is. Without this check a crafted id
+    // could attach someone else's subscription to this transaction.
+    const [owned] = await db.query.subscriptions.findMany({
+      where: and(eq(subscriptions.id, subscriptionId), eq(subscriptions.userId, user.id)),
+      columns: { id: true },
+      limit: 1,
+    });
+    if (!owned) return { success: false, error: 'Subscription not found' };
+
     const res = await db
       .update(transactions)
       .set({ subscriptionId, subscriptionPeriod: periodDate, updatedAt: new Date() })
@@ -3158,10 +3172,7 @@ export async function linkTransaction(
     revalidatePath('/history');
     return { success: true };
   } catch (error) {
-    // Drizzle's message carries the entire failed statement. Log that where it
-    // is useful and hand the user something they can act on.
-    console.error('[subscriptions] write failed:', error);
-    return { success: false, error: 'Could not save. Please try again.' };
+    return failed('linkTransaction', error, 'Could not link. Please try again.');
   }
 }
 
@@ -3179,10 +3190,7 @@ export async function unlinkTransaction(
     revalidatePath('/history');
     return { success: true };
   } catch (error) {
-    // Drizzle's message carries the entire failed statement. Log that where it
-    // is useful and hand the user something they can act on.
-    console.error('[subscriptions] write failed:', error);
-    return { success: false, error: 'Could not save. Please try again.' };
+    return failed('unlinkTransaction', error, 'Could not unlink. Please try again.');
   }
 }
 ```
@@ -3443,8 +3451,10 @@ Check the two guests by eye. If `overview.ts`, `history.ts`, `accounts.ts`, `tra
 Then the reverse direction — nothing in the subscriptions action file writes to a table the other surfaces read:
 
 ```bash
-grep -n "db.insert\|db.update\|db.delete" src/app/actions/subscriptions.ts
+grep -n "\.insert(\|\.update(\|\.delete(" src/app/actions/subscriptions.ts
 ```
+
+Match on the method, not on `db.`: every write in that file is chained across two lines (`await db`, then `.update(...)` on the next), so a `db.update` pattern finds one write out of four and the check then passes whatever is added beside it.
 
 Expected: inserts and deletes only on `subscriptions`, and updates on `subscriptions` plus exactly two on `transactions` — the link and the unlink in Task 8, which set only `subscriptionId`, `subscriptionPeriod` and `updatedAt`.
 
