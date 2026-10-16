@@ -86,7 +86,9 @@ export function firstGrapheme(value: string): string {
 export function parseAmountInput(value: string): number {
   const cleaned = value.replace(/[$\s]/g, '');
   if (cleaned === '') return NaN;
-  const grouped = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(cleaned);
+  // [1-9], not \d: "0,500" is 0.5 to a decimal-comma reader, and read as
+  // grouping it would be 500.
+  const grouped = /^[1-9]\d{0,2}(,\d{3})+(\.\d+)?$/.test(cleaned);
   const plain = /^\d*\.?\d*$/.test(cleaned);
   if (!grouped && !plain) return NaN;
   // Number, not parseFloat: "." and "" become NaN rather than quietly

@@ -111,6 +111,18 @@ test('a comma is only a thousands separator, never a decimal point', () => {
   assert.equal(parseAmountInput('1,234,567.89'), 1234567.89);
 });
 
+test('a thousands group never starts with zero', () => {
+  // "0,500" is 0.5 to a decimal-comma reader. Read as grouping it would be 500,
+  // and no number is written with a thousands separator after a leading zero.
+  for (const bad of ['0,500', '0,001', '0,999', '00,100', '007,000', '000,000', '0,000.5']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
+  // A leading group that is a real number still reads.
+  assert.equal(parseAmountInput('1,000'), 1000);
+  assert.equal(parseAmountInput('10,001'), 10001);
+  assert.equal(parseAmountInput('100,001'), 100001);
+});
+
 test('an empty string is not one grapheme', () => {
   // The caller guards with `emoji &&`, but the predicate should not claim
   // that nothing is something.
