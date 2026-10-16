@@ -95,9 +95,20 @@ test('parseAmountInput reads what a person types, including the separators we pr
 });
 
 test('parseAmountInput refuses anything that is not a number', () => {
-  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5']) {
+  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5', '.']) {
     assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
   }
+});
+
+test('a comma is only a thousands separator, never a decimal point', () => {
+  // Stripping every comma errs upward, which is the dangerous direction:
+  // "11,99" is 11.99 to much of the world and would have read as 1199.
+  for (const bad of ['11,99', '1.288,88', '1,2,3', '1,23', '1,2345', ',99', '1,']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
+  // Real grouping still reads.
+  assert.equal(parseAmountInput('12,345.67'), 12345.67);
+  assert.equal(parseAmountInput('1,234,567.89'), 1234567.89);
 });
 
 test('an empty string is not one grapheme', () => {

@@ -72,16 +72,24 @@ export function firstGrapheme(value: string): string {
 /**
  * Read a typed money amount, or NaN.
  *
- * `parseFloat` is the trap here: it stops at the first character it cannot
+ * `parseFloat` is the first trap: it stops at the first character it cannot
  * read, so "1,288.88" becomes 1 — valid, positive, past every guard, and
- * silently a thousand times too small. Since the app formats with thousands
- * separators, typing one back in is the obvious thing to do.
+ * silently a thousand times too small. Since the app prints amounts with
+ * thousands separators, typing one back in is the obvious thing to do.
  *
- * Grouping separators and a currency symbol are stripped; anything else
- * returns NaN, which the callers already reject.
+ * Stripping every comma is the second trap, and the worse one, because it
+ * errs upward: "11,99" is how a good part of the world writes 11.99, and it
+ * would read as 1199. So a comma is accepted only where a thousands
+ * separator can legally go — groups of exactly three digits, before the
+ * decimal point — and anything else returns NaN, which the callers reject.
  */
 export function parseAmountInput(value: string): number {
-  const cleaned = value.replace(/[$,\s]/g, '');
-  if (cleaned === '' || !/^\d*\.?\d*$/.test(cleaned)) return NaN;
-  return Number(cleaned);
+  const cleaned = value.replace(/[$\s]/g, '');
+  if (cleaned === '') return NaN;
+  const grouped = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(cleaned);
+  const plain = /^\d*\.?\d*$/.test(cleaned);
+  if (!grouped && !plain) return NaN;
+  // Number, not parseFloat: "." and "" become NaN rather than quietly
+  // succeeding at something.
+  return Number(cleaned.replace(/,/g, ''));
 }
