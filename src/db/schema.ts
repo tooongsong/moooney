@@ -59,7 +59,8 @@ export const transactions = pgTable('transactions', {
   // Which subscription this payment settled, and which occurrence of it. The
   // link lives here because this row is the payment. Neither column is in any
   // explicit `columns:` projection, so no existing query's payload changes.
-  subscriptionId:     text('subscription_id').references(() => subscriptions.id),
+  subscriptionId:     text('subscription_id')
+    .references(() => subscriptions.id, { onDelete: 'set null' }),
   subscriptionPeriod: date('subscription_period', { mode: 'string' }),
   items:           jsonb('items').$type<{ name: string; price: number | null }[]>(),
   rawInput:        text('raw_input'),

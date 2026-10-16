@@ -5,7 +5,7 @@ import { asc, eq, isNull, and } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { paymentMethods, customCategories, transactions } from '@/db/schema';
+import { paymentMethods, customCategories, transactions, subscriptions } from '@/db/schema';
 import { CATEGORIES } from '@/lib/categories';
 import type { AccountType } from '@/lib/accountTypes';
 import { createClient } from '@/lib/supabase/server';
@@ -102,14 +102,29 @@ export async function archivePaymentMethod(id: string) {
 export async function deletePaymentMethod(id: string) {
   const account = await db.query.paymentMethods.findFirst({
     where: eq(paymentMethods.id, id),
+    columns: { id: true },
   });
 
   if (account) {
     const linked = await db.query.transactions.findFirst({
       where: eq(transactions.paymentMethodId, account.id),
+      columns: { id: true },
     });
     if (linked) {
-      // Has transactions → archive instead of delete
+      // Has transactions -> archive instead of delete
+      return archivePaymentMethod(id);
+    }
+
+    // And the same for a subscription that pays from it. The foreign key
+    // would otherwise reject the delete outright, and making the key
+    // `on delete set null` would be worse: the account would vanish and the
+    // subscription would quietly lose a field the user filled in. Archiving
+    // keeps the account findable and the link intact.
+    const subscribed = await db.query.subscriptions.findFirst({
+      where: eq(subscriptions.paymentMethodId, account.id),
+      columns: { id: true },
+    });
+    if (subscribed) {
       return archivePaymentMethod(id);
     }
   }

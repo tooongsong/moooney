@@ -28,7 +28,19 @@ create table if not exists subscriptions (
 );
 
 alter table subscriptions enable row level security;
-create policy "own subscriptions" on subscriptions for all using (auth.uid() = user_id);
+
+-- Guarded, unlike the earlier migrations: `create policy` has no IF NOT
+-- EXISTS, and this file runs as one transaction, so an unguarded one makes
+-- re-running the whole migration abort before anything after it.
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+     where tablename = 'subscriptions' and policyname = 'own subscriptions'
+  ) then
+    create policy "own subscriptions" on subscriptions for all using (auth.uid() = user_id);
+  end if;
+end $$;
 
 create index if not exists subscriptions_user_idx on subscriptions (user_id);
 
