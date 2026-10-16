@@ -3517,7 +3517,7 @@ Then the reverse direction — nothing in the subscriptions action file writes t
 grep -n "\.insert(\|\.update(\|\.delete(" src/app/actions/subscriptions.ts
 ```
 
-Match on the method, not on `db.`: three of the four writes are chained across two lines (`await db`, then `.update(...)` on the next), so a `db.update` pattern finds only the single-line insert and the check then passes whatever is added beside it. A raw `db.execute(sql\`...\`)` would still slip past this; nothing in the plan adds one.
+Match on the method, not on `db.`: three of the four writes are chained across two lines (`await db`, then `.update(...)` on the next), so a pattern anchored on `db.` finds only the single-line insert and the check then passes whatever is added beside it. A raw `db.execute(sql\`...\`)` would still slip past this; nothing in the plan adds one.
 
 Expected: inserts and deletes only on `subscriptions`, and updates on `subscriptions` plus exactly two on `transactions` — the link and the unlink in Task 8, which set only `subscriptionId`, `subscriptionPeriod` and `updatedAt`.
 
