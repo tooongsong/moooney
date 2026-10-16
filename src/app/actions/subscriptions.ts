@@ -37,6 +37,18 @@ function toNum(v: unknown, field?: string): number {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Report a failed write.
+ *
+ * Drizzle puts the entire failed statement in its error message, and these
+ * strings go straight into a toast. The real error belongs in the server log;
+ * the user gets something they can act on, named for what they were doing.
+ */
+function failed(op: string, error: unknown, message: string) {
+  console.error(`[subscriptions] ${op} failed:`, error);
+  return { success: false as const, error: message };
+}
+
 // Named columns, always. notes and website are included because the edit form
 // needs them and the rows are few; created_at and updated_at are not, because
 // nothing renders them.
@@ -208,7 +220,9 @@ export async function saveSubscription(
 
   const name = input.name?.trim();
   if (!name) return { success: false, error: 'Name is required' };
-  if (!Number.isFinite(input.amount) || input.amount <= 0) {
+  // Rounded first: the column holds two decimals, so 0.004 would pass this
+  // check and then store as 0.00 — a subscription that costs nothing.
+  if (!Number.isFinite(input.amount) || round2(input.amount) <= 0) {
     return { success: false, error: 'Amount must be greater than zero' };
   }
   if (!SUBSCRIPTION_CYCLES.includes(input.cycle)) {
@@ -230,10 +244,12 @@ export async function saveSubscription(
     return { success: false, error: 'Amount is too large' };
   }
 
-  // One emoji, not a sentence. Array.from counts characters, not UTF-16 units,
-  // so a flag or a skin-tone emoji is not cut in half.
+  // One emoji, not a sentence — and "one" means what a person sees, which
+  // code points do not. 🧑‍💻 is three code points, 🏳️‍🌈 is four and 👨‍👩‍👧 is five,
+  // so counting them rejects half the emoji keyboard while still accepting
+  // "ab". Intl.Segmenter counts graphemes, which is the thing being limited.
   const emoji = clean(input.emoji);
-  if (emoji && Array.from(emoji).length > 2) {
+  if (emoji && [...new Intl.Segmenter().segment(emoji)].length > 1) {
     return { success: false, error: 'Use a single emoji' };
   }
 
@@ -284,10 +300,7 @@ export async function saveSubscription(
     revalidate();
     return { success: true, id };
   } catch (error) {
-    // Drizzle's message carries the entire failed statement. Log that where it
-    // is useful and hand the user something they can act on.
-    console.error('[subscriptions] saveSubscription failed:', error);
-    return { success: false, error: 'Could not save. Please try again.' };
+    return failed('saveSubscription', error, 'Could not save. Please try again.');
   }
 }
 
@@ -324,10 +337,7 @@ export async function setSubscriptionStatus(
     revalidate();
     return { success: true };
   } catch (error) {
-    // Drizzle's message carries the entire failed statement. Log that where it
-    // is useful and hand the user something they can act on.
-    console.error('[subscriptions] setSubscriptionStatus failed:', error);
-    return { success: false, error: 'Could not update. Please try again.' };
+    return failed('setSubscriptionStatus', error, 'Could not update. Please try again.');
   }
 }
 
@@ -342,10 +352,7 @@ export async function deleteSubscription(id: string): Promise<{ success: boolean
     revalidate();
     return { success: true };
   } catch (error) {
-    // Drizzle's message carries the entire failed statement. Log that where it
-    // is useful and hand the user something they can act on.
-    console.error('[subscriptions] deleteSubscription failed:', error);
-    return { success: false, error: 'Could not delete. Please try again.' };
+    return failed('deleteSubscription', error, 'Could not delete. Please try again.');
   }
 }
 
