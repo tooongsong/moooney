@@ -1,5 +1,6 @@
 import { getOverviewData, getTrailingTrend, getCategoryDetail, type OverviewPeriod } from '@/app/actions/overview';
 import { getCurrentPeriod } from '@/app/actions/time';
+import { getRecurringMonthlyTotal } from '@/app/actions/subscriptions';
 import { OverviewClient } from '@/components/OverviewClient';
 import { BottomNav } from '@/components/BottomNav';
 import { QuickAddIsland } from '@/components/QuickAddIsland';
@@ -13,7 +14,7 @@ export default async function OverviewPage({
   const period: OverviewPeriod = params.period === 'year' ? 'year' : params.period === 'all' ? 'all' : 'month';
   const category = params.category?.trim() || null;
 
-  const [data, { year: currentYear, month: currentMonth }, trend, detail] = await Promise.all([
+  const [data, { year: currentYear, month: currentMonth }, trend, detail, recurring] = await Promise.all([
     getOverviewData(period, { month: params.month, year: params.year }),
     getCurrentPeriod(),
     // ponytail: fetched on every load, including phones that never render the
@@ -24,6 +25,9 @@ export default async function OverviewPage({
     category
       ? getCategoryDetail(category, period, { month: params.month, year: params.year })
       : Promise.resolve(null),
+    // Two columns of the active rows. Desktop never renders the row this
+    // feeds, but the server cannot know the viewport and the query is tiny.
+    getRecurringMonthlyTotal(),
   ]);
 
   return (
@@ -33,7 +37,7 @@ export default async function OverviewPage({
       </div>
 
       <section className="pt-2 lg:pt-8">
-        <OverviewClient data={data} period={period} currentYear={currentYear} currentMonth={currentMonth} trend={trend} detail={detail} />
+        <OverviewClient data={data} period={period} currentYear={currentYear} currentMonth={currentMonth} trend={trend} detail={detail} recurring={recurring} />
       </section>
 
       <BottomNav />

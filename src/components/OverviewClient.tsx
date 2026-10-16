@@ -3,6 +3,7 @@
 import { useState, useEffect, useTransition } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { ChevronRight } from 'lucide-react';
 import { subMonths, addMonths } from 'date-fns';
 import { animate, AnimatePresence, motion } from 'motion/react';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
@@ -24,6 +25,7 @@ interface OverviewClientProps {
   currentMonth: number;
   trend: Awaited<ReturnType<typeof getTrailingTrend>>;
   detail: Awaited<ReturnType<typeof getCategoryDetail>> | null;
+  recurring: { monthly: number; activeCount: number };
 }
 
 const MONTH_NAMES = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -56,7 +58,7 @@ function parseMonthKey(monthKey: string): { year: number; month: number } {
   return { year: y, month: m };
 }
 
-export function OverviewClient({ data, period, currentYear, currentMonth, trend, detail }: OverviewClientProps) {
+export function OverviewClient({ data, period, currentYear, currentMonth, trend, detail, recurring }: OverviewClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -204,6 +206,35 @@ export function OverviewClient({ data, period, currentYear, currentMonth, trend,
           )}
         </div>
       </section>
+
+      {/* The phone's way into Subscriptions. The bottom-nav pill is full at
+          four tabs — it measures 299px and clears a 320px screen by 10px — so
+          a fifth tab would mean dropping the labels, and Overview against
+          Subscriptions as bare icons is a guess every time. A labelled row
+          with a real figure beats Settings' unlabelled header icon.
+
+          This figure is a rate, not this period's spending. It is summed into
+          nothing above it, and it reads the same whichever month is showing,
+          which is why there is no period condition here. */}
+      <div className="d-mobile-only">
+        <Link
+          href="/subscriptions"
+          className="flex items-center justify-between gap-3 py-3.5 border-t border-line active:bg-sand/40 transition-colors"
+        >
+          <span className="text-[9px] font-bold uppercase tracking-widest text-ink-faint">Recurring</span>
+          <span className="flex items-center gap-1.5 shrink-0 text-sm">
+            {recurring.activeCount > 0 ? (
+              <>
+                <span className="font-semibold text-ink tabular-nums">{formatCurrency(recurring.monthly)}</span>
+                <span className="text-xs text-ink-faint">monthly equivalent</span>
+              </>
+            ) : (
+              <span className="text-xs text-ink-faint">Track what renews</span>
+            )}
+            <ChevronRight className="h-3.5 w-3.5 text-ink-faint" />
+          </span>
+        </Link>
+      </div>
 
       <div className="d-split">
         <div className="d-split-main">
