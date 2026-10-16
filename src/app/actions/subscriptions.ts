@@ -1,17 +1,19 @@
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, asc, eq, exists, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, exists, gte, isNull, lte, or, sql } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { paymentMethods, subscriptions } from '@/db/schema';
+import { paymentMethods, subscriptions, transactions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
-import { daysBetween, safeTimeZone, toCalendarDate, todayIn, type CalendarDate } from '@/lib/dates';
+import { daysBetween, monthRange, safeTimeZone, toCalendarDate, todayIn, type CalendarDate } from '@/lib/dates';
 import { isSingleGrapheme } from '@/lib/utils';
 import {
   monthlyEquivalent,
   nextOccurrence,
+  occurrencesBetween,
+  periodKeyOf,
   SUBSCRIPTION_CYCLES,
   SUBSCRIPTION_STATUSES,
   type SubscriptionCycle,
@@ -357,4 +359,104 @@ function revalidate() {
   revalidatePath('/subscriptions');
   // Overview carries the phone's entry row, which shows the monthly figure.
   revalidatePath('/overview');
+}
+
+export interface DayOccurrence {
+  subscriptionId: string;
+  name: string;
+  emoji: string | null;
+  amount: number;
+  cycle: SubscriptionCycle;
+  date: CalendarDate;
+  /** Never inferred from the date alone. A past date is not a payment. */
+  state: 'upcoming' | 'confirmed' | 'unconfirmed';
+  /** What actually moved, when confirmed. Differs from `amount` after a price change. */
+  paidAmount: number | null;
+}
+
+export interface MonthOccurrences {
+  monthKey: string;
+  year: number;
+  /** 1-based. */
+  month: number;
+  today: CalendarDate;
+  /** Keyed by full "YYYY-MM-DD". Days with nothing on them are absent. */
+  byDay: Record<string, DayOccurrence[]>;
+  expected: number;
+  /** From today to the end of the month. Meaningless for a past month. */
+  remaining: number;
+  isPastMonth: boolean;
+}
+
+export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccurrences> {
+  const user = await getUser();
+  const today = todayIn(safeTimeZone(user.user_metadata?.timezone as string | undefined));
+
+  // A month key off the URL is untrusted. monthRange(2026, 13) would happily
+  // produce "2026-13-01", which is not a date.
+  let year = Number(monthKey?.slice(0, 4));
+  let month = Number(monthKey?.slice(5, 7));
+  if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12)) {
+    year = Number(today.slice(0, 4));
+    month = Number(today.slice(5, 7));
+  }
+  const key = `${year}-${String(month).padStart(2, '0')}`;
+  const [first, last] = monthRange(year, month);
+
+  const rows = await loadRows(user.id);
+
+  // Links whose period falls in this month. Four small columns, bounded by the
+  // month — not every link ever made.
+  const links = await db.query.transactions.findMany({
+    where: and(
+      eq(transactions.userId, user.id),
+      gte(transactions.subscriptionPeriod, first),
+      lte(transactions.subscriptionPeriod, last),
+    ),
+    columns: { id: true, amount: true, subscriptionId: true, subscriptionPeriod: true },
+  });
+
+  const paid = new Map<string, { id: string; amount: number }>();
+  for (const l of links) {
+    if (!l.subscriptionId || !l.subscriptionPeriod) continue;
+    const cycle = rows.find((s) => s.id === l.subscriptionId)?.cycle;
+    if (!cycle) continue;
+    paid.set(`${l.subscriptionId}|${periodKeyOf(cycle, l.subscriptionPeriod)}`,
+             { id: l.id, amount: toNum(l.amount, 'amount') });
+  }
+
+  const byDay: Record<string, DayOccurrence[]> = {};
+  let expected = 0;
+  let remaining = 0;
+
+  for (const s of rows) {
+    for (const date of occurrencesBetween(s, first, last, today)) {
+      const hit = paid.get(`${s.id}|${periodKeyOf(s.cycle, date)}`);
+      (byDay[date] ??= []).push({
+        subscriptionId: s.id,
+        name: s.name,
+        emoji: s.emoji,
+        amount: s.amount,
+        cycle: s.cycle,
+        date,
+        // Today counts as upcoming: the charge may not have landed yet, and
+        // calling it unconfirmed would be an accusation, not a fact.
+        state: hit ? 'confirmed' : date >= today ? 'upcoming' : 'unconfirmed',
+        paidAmount: hit ? hit.amount : null,
+      });
+      expected += s.amount;
+      if (date >= today) remaining += s.amount;
+    }
+  }
+
+  return {
+    monthKey: key,
+    year,
+    month,
+    today,
+    byDay,
+    expected: round2(expected),
+    remaining: round2(remaining),
+    isPastMonth: last < today,
+  };
 }

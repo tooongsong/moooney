@@ -1,24 +1,34 @@
+import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { BottomNav } from '@/components/BottomNav';
 import { QuickAddIsland } from '@/components/QuickAddIsland';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
+import { SubscriptionCalendar } from '@/components/SubscriptionCalendar';
 import { SubscriptionDialog } from '@/components/SubscriptionDialog';
 import { SubscriptionList } from '@/components/SubscriptionList';
 import { SubscriptionMark } from '@/components/SubscriptionMark';
 import { getAllCategories } from '@/app/actions/manage';
-import { getAccountOptions, getSubscriptionsView } from '@/app/actions/subscriptions';
+import { getAccountOptions, getMonthOccurrences, getSubscriptionsView } from '@/app/actions/subscriptions';
 import { relativeDayLabel } from '@/lib/subscriptionSchedule';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { cn, formatCurrency, formatDate } from '@/lib/utils';
 
-export default async function SubscriptionsPage() {
-  const [view, categories, accounts] = await Promise.all([
+export default async function SubscriptionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string; month?: string }>;
+}) {
+  const params = await searchParams;
+  const calendarView = params.view === 'calendar';
+
+  const [view, categories, accounts, month] = await Promise.all([
     getSubscriptionsView(),
     getAllCategories(),
     getAccountOptions(),
+    getMonthOccurrences(params.month),
   ]);
 
   return (
-    <div className="d-max-lg max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
+    <div className="d-max-xl max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
       <div className="d-mobile-only">
         <QuickAddIsland />
       </div>
@@ -95,7 +105,31 @@ export default async function SubscriptionsPage() {
             </section>
           )}
 
-          <SubscriptionList items={view.subscriptions} today={view.today} categories={categories} accounts={accounts} />
+          {/* Phone only: both will not fit in one column. Desktop shows both. */}
+          <div className="d-mobile-only">
+            <div className="flex items-center gap-4 pb-3 border-t border-line pt-4">
+              <Link href="/subscriptions"
+                    className={cn('text-[10px] font-bold uppercase tracking-widest transition-colors',
+                                  calendarView ? 'text-ink-faint' : 'text-ink')}>
+                List
+              </Link>
+              <Link href="/subscriptions?view=calendar"
+                    className={cn('text-[10px] font-bold uppercase tracking-widest transition-colors',
+                                  calendarView ? 'text-ink' : 'text-ink-faint')}>
+                Calendar
+              </Link>
+            </div>
+          </div>
+
+          <div className="d-split">
+            <div className={cn('d-split-main', calendarView && 'max-lg:hidden')}>
+              <SubscriptionList items={view.subscriptions} today={view.today}
+                                categories={categories} accounts={accounts} />
+            </div>
+            <div className={cn('d-split-panel d-panel-rule', !calendarView && 'max-lg:hidden')}>
+              <SubscriptionCalendar data={month} preserveView={calendarView} />
+            </div>
+          </div>
         </>
       )}
 
