@@ -1,11 +1,11 @@
 'use server';
 
 import { randomUUID } from 'crypto';
-import { asc, eq, isNull, and } from 'drizzle-orm';
+import { asc, eq, isNull, and, or } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
-import { paymentMethods, customCategories, transactions, subscriptions } from '@/db/schema';
+import { paymentMethods, customCategories, transactions, subscriptions, transfers } from '@/db/schema';
 import { CATEGORIES } from '@/lib/categories';
 import type { AccountType } from '@/lib/accountTypes';
 import { createClient } from '@/lib/supabase/server';
@@ -100,36 +100,47 @@ export async function archivePaymentMethod(id: string) {
 }
 
 export async function deletePaymentMethod(id: string) {
+  // This path had no ownership check at all, and RLS does not cover it: the
+  // app connects as `postgres`, which has rolbypassrls, so every query has to
+  // scope itself. Both siblings above already do; this one deleted any
+  // account by id. Same shape as archivePaymentMethod, deliberately — a
+  // non-match is a silent no-op there too.
+  const user = await getUser();
+
   const account = await db.query.paymentMethods.findFirst({
-    where: eq(paymentMethods.id, id),
+    where: and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id)),
     columns: { id: true },
   });
+  if (!account) return { success: true };
 
-  if (account) {
-    const linked = await db.query.transactions.findFirst({
-      where: eq(transactions.paymentMethodId, account.id),
-      columns: { id: true },
-    });
-    if (linked) {
-      // Has transactions -> archive instead of delete
-      return archivePaymentMethod(id);
-    }
+  // An account is archived rather than deleted when anything still points at
+  // it. Transactions were already handled; subscriptions and transfers are
+  // the same case, and the foreign keys are all NO ACTION, so an unguarded
+  // delete raises a raw constraint error — an unhandled 500, since there is
+  // no try/catch here.
+  const linked = await db.query.transactions.findFirst({
+    where: eq(transactions.paymentMethodId, account.id),
+    columns: { id: true },
+  });
+  if (linked) return archivePaymentMethod(id);
 
-    // And the same for a subscription that pays from it. The foreign key
-    // would otherwise reject the delete outright, and making the key
-    // `on delete set null` would be worse: the account would vanish and the
-    // subscription would quietly lose a field the user filled in. Archiving
-    // keeps the account findable and the link intact.
-    const subscribed = await db.query.subscriptions.findFirst({
-      where: eq(subscriptions.paymentMethodId, account.id),
-      columns: { id: true },
-    });
-    if (subscribed) {
-      return archivePaymentMethod(id);
-    }
-  }
+  // Archiving beats making the key `on delete set null`: the account stays
+  // findable, and the subscription keeps the field the user filled in rather
+  // than silently losing it.
+  const subscribed = await db.query.subscriptions.findFirst({
+    where: eq(subscriptions.paymentMethodId, account.id),
+    columns: { id: true },
+  });
+  if (subscribed) return archivePaymentMethod(id);
 
-  await db.delete(paymentMethods).where(eq(paymentMethods.id, id));
+  const transferred = await db.query.transfers.findFirst({
+    where: or(eq(transfers.fromAccountId, account.id), eq(transfers.toAccountId, account.id)),
+    columns: { id: true },
+  });
+  if (transferred) return archivePaymentMethod(id);
+
+  await db.delete(paymentMethods)
+    .where(and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id)));
   revalidateAccounts();
   return { success: true };
 }
