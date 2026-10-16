@@ -1421,8 +1421,12 @@ export function parseAmountInput(value: string): number {
   if (cleaned === '') return NaN;
   // [1-9], not \d: "0,500" is 0.5 to a decimal-comma reader, and read as
   // grouping it would be 500.
-  const grouped = /^[1-9]\d{0,2}(,\d{3})+(\.\d+)?$/.test(cleaned);
-  const plain = /^\d*\.?\d*$/.test(cleaned);
+  // Two fraction digits, because that is what numeric(12,2) holds. Accepting
+  // more means silently rounding what someone typed, and it is also how a
+  // dot-grouped integer gets in: "1.288" is 1,288 in half of Europe and
+  // would store as $1.29.
+  const grouped = /^[1-9]\d{0,2}(,\d{3})+(\.\d{1,2})?$/.test(cleaned);
+  const plain = /^\d*\.?\d{0,2}$/.test(cleaned);
   if (!grouped && !plain) return NaN;
   // Number, not parseFloat: "." and "" become NaN rather than quietly
   // succeeding at something.
@@ -1506,6 +1510,20 @@ test('a comma is only a thousands separator, never a decimal point', () => {
   // Real grouping still reads.
   assert.equal(parseAmountInput('12,345.67'), 12345.67);
   assert.equal(parseAmountInput('1,234,567.89'), 1234567.89);
+});
+
+test('more fraction digits than the column holds are refused, not rounded', () => {
+  // numeric(12,2) would store 11.999 as 12.00 without saying so. Refusing is
+  // the honest answer, and it closes the last silent misread: "1.288" is
+  // 1,288 to a dot-grouping reader and would otherwise store as $1.29.
+  for (const bad of ['11.999', '1.288', '12.345', '100.000', '1,288.888']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
+  // One or two, or none at all, still read.
+  assert.equal(parseAmountInput('.5'), 0.5);
+  assert.equal(parseAmountInput('11.9'), 11.9);
+  assert.equal(parseAmountInput('11.99'), 11.99);
+  assert.equal(parseAmountInput('5.'), 5);
 });
 
 test('a separator is read by where it sits, not deleted wherever it is found', () => {
@@ -2124,6 +2142,7 @@ import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronDown, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { unstable_rethrow } from 'next/navigation';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -2198,7 +2217,13 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   // stays disabled behind a spinner, and reopening does not clear it.
   async function handleSave() {
     // Said before the action, because the action can only answer "greater
-    // than zero" — which reads as nonsense to someone who typed 11,99.
+    // than zero" — which reads as nonsense to someone who typed 11,99. After
+    // the name check, so an untouched form complains about its first field
+    // rather than its second.
+    if (!name.trim()) {
+      toast.error('Name is required');
+      return;
+    }
     if (Number.isNaN(parseAmountInput(amount))) {
       toast.error('Enter the amount like 11.99 or 1,288.88');
       return;
@@ -2224,7 +2249,12 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
       toast.success(subscription ? 'Saved' : 'Added');
       handleOpenChange(false);
       router.refresh();
-    } catch {
+    } catch (error) {
+      // Next signals an internal redirect by rejecting the action promise, so
+      // a signed-out session lands here on its way to /login. Rethrowing
+      // first lets that through untouched; without it the user gets a
+      // "could not reach the server" toast riding on top of the login page.
+      unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
     } finally {
       setSaving(false);
@@ -2242,7 +2272,12 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
       }
       handleOpenChange(false);
       router.refresh();
-    } catch {
+    } catch (error) {
+      // Next signals an internal redirect by rejecting the action promise, so
+      // a signed-out session lands here on its way to /login. Rethrowing
+      // first lets that through untouched; without it the user gets a
+      // "could not reach the server" toast riding on top of the login page.
+      unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
     } finally {
       setSaving(false);
@@ -2261,7 +2296,12 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
       toast.success('Deleted');
       handleOpenChange(false);
       router.refresh();
-    } catch {
+    } catch (error) {
+      // Next signals an internal redirect by rejecting the action promise, so
+      // a signed-out session lands here on its way to /login. Rethrowing
+      // first lets that through untouched; without it the user gets a
+      // "could not reach the server" toast riding on top of the login page.
+      unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
     } finally {
       setSaving(false);
@@ -2547,7 +2587,7 @@ Nothing in this plan writes to the database, so the form cannot be driven end to
 **Validation, in the harness.** Most rejections in `saveSubscription` happen before any database call, so the messages are reachable by reading the function and matching them to what the form can produce. Two do not, and they are marked:
 
 1. Empty name → `Name is required`.
-2. Amount `0`, `-5`, `abc` or `1.2.3` → `Amount must be greater than zero`. Only `0` survives `parseAmountInput` as a finite number; the rest come back NaN, including `-5`, since a minus sign is not part of the grammar. The message is the same either way. **`1,288.88` must save as 1288.88, not 1.00, and `11,99` must be rejected rather than saved as 1199** — the first is what `parseFloat` got wrong and the second is what stripping commas got wrong.
+2. Amount `0` → `Amount must be greater than zero`, from the action. Amount `-5`, `abc`, `1.2.3` or `11.999` → `Enter the amount like 11.99 or 1,288.88`, from the dialog, before any request goes out: all of them are NaN, `-5` included, since a minus sign is not part of the grammar. **`1,288.88` must save as 1288.88, not 1.00, and `11,99` must be rejected rather than saved as 1199** — the first is what `parseFloat` got wrong and the second is what stripping commas got wrong.
 3. A cycle outside the three → `Pick a billing cycle`. Unreachable from the form's own `Select`, which is the point: it guards the action, not the widget.
 4. Date `2026-02-30` → `toCalendarDate` throws and the action answers `Enter a valid first payment date`. Task 1 unit-tests that throw directly, so this is about the catch being there.
 5. More than one emoji → `Use a single emoji`, counted with `Intl.Segmenter` so that 🧑‍💻 and 🏳️‍🌈 pass as the single characters a person sees them as, while `🎬🎵` and `ab` do not.
