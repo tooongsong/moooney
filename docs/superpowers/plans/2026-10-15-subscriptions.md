@@ -1391,7 +1391,11 @@ export function isSingleGrapheme(value: string): boolean {
  *  Same reason as above: `value[0]` and `Array.from(value)[0]` both return a
  *  fragment of a joined emoji or a letter stripped of its accent. */
 export function firstGrapheme(value: string): string {
-  return [...new Intl.Segmenter().segment(value)][0]?.segment ?? '';
+  // Drop leading combining marks and invisible format characters first. A
+  // pasted name can start with either, and segmenting from there returns a
+  // stray accent or a zero-width character — a circle with nothing in it.
+  const start = value.replace(/^[\p{M}\p{Cf}\s]+/u, '');
+  return [...new Intl.Segmenter().segment(start)][0]?.segment ?? '';
 }
 
 /**
@@ -1409,7 +1413,11 @@ export function firstGrapheme(value: string): string {
  * decimal point — and anything else returns NaN, which the callers reject.
  */
 export function parseAmountInput(value: string): number {
-  const cleaned = value.replace(/[$\s]/g, '');
+  // Trim the ends and take a leading currency symbol; do NOT delete every
+  // space and $ wherever they sit, which fuses "11 99" into 1199 and "1$2"
+  // into 12 — the same hundredfold error, from the same instinct to be
+  // forgiving about characters whose position is the whole meaning.
+  const cleaned = value.trim().replace(/^\$\s*/, '');
   if (cleaned === '') return NaN;
   // [1-9], not \d: "0,500" is 0.5 to a decimal-comma reader, and read as
   // grouping it would be 500.
@@ -1460,6 +1468,11 @@ test('firstGrapheme returns a whole character, not a fragment of one', () => {
   assert.equal(firstGrapheme('網易云音樂'), '網');
   assert.equal(firstGrapheme('Spotify'), 'S');
   assert.equal(firstGrapheme(''), '');
+  assert.equal(firstGrapheme('   '), '');
+  // A pasted name can lead with a combining mark or a zero-width character.
+  // Segmenting from there renders a stray accent, or nothing at all.
+  assert.equal(firstGrapheme('\u0301abc'), 'a');
+  assert.equal(firstGrapheme('\u200bSpotify'), 'S');
   // The failure this replaces: the first code point of a joined emoji renders
   // as a different emoji entirely.
   assert.notEqual(firstGrapheme('👨‍👩‍👧 Family plan'), Array.from('👨‍👩‍👧 Family plan')[0]);
@@ -1478,7 +1491,8 @@ test('parseAmountInput reads what a person types, including the separators we pr
 });
 
 test('parseAmountInput refuses anything that is not a number', () => {
-  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5', '.']) {
+  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5', '.',
+                     '11 99', '5 99', '1 2', '1$2', '1 288.88']) {
     assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
   }
 });
@@ -1492,6 +1506,19 @@ test('a comma is only a thousands separator, never a decimal point', () => {
   // Real grouping still reads.
   assert.equal(parseAmountInput('12,345.67'), 12345.67);
   assert.equal(parseAmountInput('1,234,567.89'), 1234567.89);
+});
+
+test('a separator is read by where it sits, not deleted wherever it is found', () => {
+  // Deleting every space and $ is the forgiving-looking choice, and it is the
+  // same hundredfold-upward error as the comma one: "11 99" fused into 1199.
+  for (const bad of ['11 99', '1$2', '1 2', '1 288.88']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
+  // A leading symbol and surrounding space are still fine — that is what a
+  // person pastes.
+  assert.equal(parseAmountInput('$1,288.88'), 1288.88);
+  assert.equal(parseAmountInput('$ 1,288.88'), 1288.88);
+  assert.equal(parseAmountInput('  11.99  '), 11.99);
 });
 
 test('a thousands group never starts with zero', () => {
@@ -2141,7 +2168,9 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // The timestamp, not just a boolean: arming and confirming are the same
+  // button in the same place, so a double-click would otherwise delete.
+  const [armedDeleteAt, setArmedDeleteAt] = useState<number | null>(null);
   const [more, setMore] = useState(false);
 
   const [name, setName] = useState(subscription?.name ?? '');
@@ -2157,60 +2186,86 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   function handleOpenChange(next: boolean) {
     setOpen(next);
     if (!next) {
-      setConfirmingDelete(false);
+      setArmedDeleteAt(null);
       setMore(false);
     }
   }
 
+  // try/finally on all three handlers: the actions catch database errors and
+  // return { success: false }, but they cannot catch the request itself
+  // failing — offline, or a stale bundle in this PWA calling an action from
+  // an older deploy. Without the finally, `saving` stays true, every control
+  // stays disabled behind a spinner, and reopening does not clear it.
   async function handleSave() {
-    setSaving(true);
-    const res = await saveSubscription({
-      id: subscription?.id,
-      name,
-      amount: parseAmountInput(amount),
-      cycle,
-      anchorDate,
-      emoji,
-      category: category === NONE ? null : category,
-      paymentMethodId: accountId === NONE ? null : accountId,
-      website,
-      notes,
-    });
-    setSaving(false);
-    if (!res.success) {
-      toast.error(res.error);
+    // Said before the action, because the action can only answer "greater
+    // than zero" — which reads as nonsense to someone who typed 11,99.
+    if (Number.isNaN(parseAmountInput(amount))) {
+      toast.error('Enter the amount like 11.99 or 1,288.88');
       return;
     }
-    toast.success(subscription ? 'Saved' : 'Added');
-    handleOpenChange(false);
-    router.refresh();
+    setSaving(true);
+    try {
+      const res = await saveSubscription({
+        id: subscription?.id,
+        name,
+        amount: parseAmountInput(amount),
+        cycle,
+        anchorDate,
+        emoji,
+        category: category === NONE ? null : category,
+        paymentMethodId: accountId === NONE ? null : accountId,
+        website,
+        notes,
+      });
+      if (!res.success) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(subscription ? 'Saved' : 'Added');
+      handleOpenChange(false);
+      router.refresh();
+    } catch {
+      toast.error('Could not reach the server. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleStatus(next: SubscriptionStatus) {
     if (!subscription || next === subscription.status) return;
     setSaving(true);
-    const res = await setSubscriptionStatus(subscription.id, next);
-    setSaving(false);
-    if (!res.success) {
-      toast.error(res.error || 'Could not change status');
-      return;
+    try {
+      const res = await setSubscriptionStatus(subscription.id, next);
+      if (!res.success) {
+        toast.error(res.error || 'Could not change status');
+        return;
+      }
+      handleOpenChange(false);
+      router.refresh();
+    } catch {
+      toast.error('Could not reach the server. Please try again.');
+    } finally {
+      setSaving(false);
     }
-    handleOpenChange(false);
-    router.refresh();
   }
 
   async function handleDelete() {
     if (!subscription) return;
     setSaving(true);
-    const res = await deleteSubscription(subscription.id);
-    setSaving(false);
-    if (!res.success) {
-      toast.error(res.error || 'Could not delete');
-      return;
+    try {
+      const res = await deleteSubscription(subscription.id);
+      if (!res.success) {
+        toast.error(res.error || 'Could not delete');
+        return;
+      }
+      toast.success('Deleted');
+      handleOpenChange(false);
+      router.refresh();
+    } catch {
+      toast.error('Could not reach the server. Please try again.');
+    } finally {
+      setSaving(false);
     }
-    toast.success('Deleted');
-    handleOpenChange(false);
-    router.refresh();
   }
 
   return (
@@ -2348,15 +2403,21 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
             <button
               type="button"
               disabled={saving}
-              onClick={() => (confirmingDelete ? handleDelete() : setConfirmingDelete(true))}
+              onClick={() => {
+                if (armedDeleteAt === null) {
+                  setArmedDeleteAt(Date.now());
+                } else if (Date.now() - armedDeleteAt > 400) {
+                  handleDelete();
+                }
+              }}
               className="ml-auto text-[10px] font-bold uppercase tracking-widest text-accent hover:opacity-80 disabled:opacity-40"
             >
-              {confirmingDelete ? 'Really delete?' : 'Delete'}
+              {armedDeleteAt !== null ? 'Really delete?' : 'Delete'}
             </button>
           </div>
         )}
 
-        {confirmingDelete && (
+        {armedDeleteAt !== null && (
           <p className="text-[11px] text-ink-faint">
             The payments already recorded stay in History. Only the schedule goes.
           </p>
