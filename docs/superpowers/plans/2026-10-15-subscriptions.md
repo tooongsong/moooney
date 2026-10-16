@@ -872,24 +872,22 @@ In `src/app/actions/manage.ts`, add `subscriptions` to the `@/db/schema` import,
 
 ```ts
 export async function deletePaymentMethod(id: string) {
-  // This path had no ownership check at all, and RLS does not cover it: the
-  // app connects as `postgres`, which has rolbypassrls, so every query has to
-  // scope itself. Both siblings above already do; this one deleted any
-  // account by id. Same shape as archivePaymentMethod, deliberately — a
-  // non-match is a silent no-op there too.
+  // RLS does not apply on this path: the app connects as `postgres`, which has
+  // rolbypassrls, so every query here scopes itself to the caller.
   const user = await getUser();
 
   const account = await db.query.paymentMethods.findFirst({
     where: and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id)),
     columns: { id: true },
   });
+  // Not the caller's account, or no such account: a silent no-op, as in
+  // archivePaymentMethod.
   if (!account) return { success: true };
 
-  // An account is archived rather than deleted when anything still points at
-  // it. Transactions were already handled; subscriptions and transfers are
-  // the same case, and the foreign keys are all NO ACTION, so an unguarded
-  // delete raises a raw constraint error — an unhandled 500, since there is
-  // no try/catch here.
+  // An account is archived rather than deleted when any row still references
+  // it. Every foreign key to payment_methods is NO ACTION, so an unguarded
+  // delete raises a raw constraint error — an unhandled 500, since there is no
+  // try/catch here.
   const linked = await db.query.transactions.findFirst({
     where: eq(transactions.paymentMethodId, account.id),
     columns: { id: true },
@@ -985,7 +983,8 @@ Every read names its columns. This project has already spent 6.5 GB of egress on
 
 **Files:**
 - Create: `src/app/actions/subscriptions.ts`
-- Modify: `src/app/actions/settings.ts` — add `subscriptions` to `deleteAllData`
+- Modify: `src/app/actions/settings.ts` — `deleteAllData` must clear subscriptions too
+- Modify: `src/components/ExportButtons.tsx` — the confirm copy names what is deleted
 
 **Interfaces:**
 - Consumes: `occurrencesBetween`, `nextOccurrence`, `monthlyEquivalent`, `periodKeyOf`, `Schedulable`, `SubscriptionCycle`, `SubscriptionStatus` from `@/lib/subscriptionSchedule`; `subscriptions`, `paymentMethods` from `@/db/schema`.
@@ -1292,14 +1291,6 @@ export async function setSubscriptionStatus(
   }
 }
 
-/**
- * Subscriptions are part of "delete all my data".
- *
- * `deleteAllData` in `src/app/actions/settings.ts` clears transactions,
- * transfers and custom categories. Add subscriptions to it, in the same
- * user-scoped shape, or the one thing that survives a full wipe is the
- * schedule of what the user pays for.
- */
 export async function deleteSubscription(id: string): Promise<{ success: boolean; error?: string }> {
   const user = await getUser();
   try {
@@ -1322,12 +1313,33 @@ function revalidate() {
 }
 ```
 
-- [ ] **Step 2: Typecheck**
+- [ ] **Step 2: Put subscriptions into "delete all my data"**
+
+`deleteAllData` clears transactions, transfers and custom categories. Without this line the one thing that survives a full wipe is the schedule of everything the user pays for — which is the single most personal list in the app.
+
+In `src/app/actions/settings.ts`, add `subscriptions` to the `@/db/schema` import and one delete to the existing block:
+
+```ts
+    await db.delete(transactions).where(eq(transactions.userId, user.id));
+    await db.delete(subscriptions).where(eq(subscriptions.userId, user.id));
+    await db.delete(transfers).where(eq(transfers.userId, user.id));
+    await db.delete(customCategories).where(eq(customCategories.userId, user.id));
+```
+
+After transactions, deliberately: `transactions.subscription_id` is `on delete set null`, so either order works, but deleting the referencing rows first means the foreign key never has to fire at all.
+
+Add `revalidatePath('/subscriptions')` beside the existing `revalidatePath('/')`.
+
+Do not run it. This is one of the paths recorded as unverified — it needs a write, and the only honest test of it would destroy the user's data.
+
+Check the user-facing copy while you are here: `ExportButtons.tsx` tells the user this clears "transactions and categories". It now clears subscriptions too, and the sentence should say so.
+
+- [ ] **Step 3: Typecheck**
 
 Run: `npx tsc --noEmit`
 Expected: clean.
 
-- [ ] **Step 3: Prove the date mapping, read-only, from a column that already has rows**
+- [ ] **Step 4: Prove the date mapping, read-only, from a column that already has rows**
 
 The check that matters here is that a `date` column declared `{ mode: 'string' }` arrives as `"YYYY-MM-DD"` and never as a `Date`. Getting that wrong is what gave this project a day-early date bug across the whole app.
 
@@ -1370,10 +1382,10 @@ Record two things in your report as **unverified, because they need a write**: t
 
 If `anchor_date` comes back as a `Date` or carries a time, the column type or the drizzle `mode: 'string'` is wrong — stop and fix it here. That exact mistake cost this project a day-early date bug across the whole app.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/actions/subscriptions.ts
+git add src/app/actions/subscriptions.ts src/app/actions/settings.ts src/components/ExportButtons.tsx
 git commit -m "Add subscription server actions
 
 Totals count active subscriptions only — a paused one is not a commitment.
