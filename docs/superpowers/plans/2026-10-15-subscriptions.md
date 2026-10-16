@@ -21,6 +21,15 @@
 - **The bottom nav keeps four tabs.** It measures 299px and clears a 320px screen by 10px. Nothing in this plan adds a fifth.
 - **New wording** on this surface is "expected", "upcoming", "monthly equivalent", "annual equivalent". Never "spent" or "spending".
 - **Tests** are `node:test`, run with `npm test`. A lib module that is unit-tested imports its neighbours with a relative `.ts` extension (`'./dates.ts'`), not the `@/` alias — bare `node --test` cannot resolve tsconfig paths. `allowImportingTsExtensions` is already on, and webpack resolves it in the app build.
+- **Nothing in this plan writes to the database.** No INSERT, UPDATE, DELETE or
+  DDL, for any reason, including throwaway probe rows and their cleanup. The
+  one additive migration in Task 2 is already applied and is the last schema
+  change. Read-only queries are expected and encouraged: `pg_tables`,
+  `pg_policies`, `pg_constraint`, `information_schema`, row counts, checksums.
+  Where a step once proved something by creating a row, it now proves it from
+  an existing row, from a fixture, or by reading the code — and where it can be
+  proved by none of those, it is written up for the user to run themselves and
+  recorded as unverified until they do.
 - **Commit after every task.** Message body explains why, not what.
 
 ## File Structure
@@ -876,40 +885,27 @@ export async function deletePaymentMethod(id: string) {
 
 The `columns:` on all three reads is the project's standing rule, and the first two were missing it — a bare `findFirst` on `transactions` pulls every column of the row it finds, receipt image included.
 
-- [ ] **Step 7: Prove the guard works, against the real database**
+- [ ] **Step 7: Read the guard against its own call graph**
 
-There is no unit test for a server action that talks to Postgres, so verify it the way the rest of this plan does. Create a throwaway account with no transactions, point a subscription at it, and confirm that deleting it archives rather than throwing.
+Writing to the database is not available, so this guard cannot be exercised end to end here. Verify it the way you would verify a branch you cannot reach in a test:
 
-Seed:
-
-```bash
-node --env-file=.env.local --input-type=module -e "
-import postgres from 'postgres';
-const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-const [u] = await sql.unsafe(\"select user_id from payment_methods limit 1\").simple();
-await sql.unsafe(\`insert into payment_methods (id,user_id,name) values ('plan-t2-acct','\${u.user_id}','Throwaway')\`).simple();
-await sql.unsafe(\`insert into subscriptions (id,user_id,name,amount,cycle,anchor_date,payment_method_id)
-  values ('plan-t2-sub','\${u.user_id}','Probe',1,'monthly','2026-01-01','plan-t2-acct')\`).simple();
-console.log('seeded');
-await sql.end();
-"
-```
-
-Then, in the signed-in app, open Settings and delete the Throwaway account. It must archive, not error. Confirm and clean up:
+1. `archivePaymentMethod` is defined in the same file and already returns the shape `deletePaymentMethod` returns. Confirm both branches return it, not a bare `true`.
+2. `subscriptions.paymentMethodId` is the column the new `findFirst` filters on, and it is the same column the foreign key is declared over. Confirm against `src/db/schema.ts`.
+3. Nothing else in the codebase deletes from `payment_methods`: `grep -rn "delete(paymentMethods)" src/` must return exactly the one call site you just guarded. If it returns more, the guard is incomplete and that is a finding.
+4. Read-only, confirm the constraint is the one the guard exists for:
 
 ```bash
 node --env-file=.env.local --input-type=module -e "
 import postgres from 'postgres';
 const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-console.table(await sql.unsafe(\"select id, archived_at is not null as archived from payment_methods where id='plan-t2-acct'\").simple());
-await sql.unsafe(\"delete from subscriptions where id='plan-t2-sub'\").simple();
-await sql.unsafe(\"delete from payment_methods where id='plan-t2-acct'\").simple();
-console.log('cleaned');
+console.table(await sql.unsafe(\"select conname, confdeltype from pg_constraint where conrelid='subscriptions'::regclass and contype='f'\").simple());
 await sql.end();
 "
 ```
 
-Expected: one row, `archived: true`. Then both probe rows are gone.
+Expected: `subscriptions_payment_method_id_fkey` with `confdeltype` `a`. That `a` is why the guard has to exist.
+
+Record in your report that the end-to-end path is **unverified**, with the one sentence a person would need to check it themselves: create an account with no transactions, point a subscription at it, delete the account in Settings, and expect it to archive rather than error.
 
 - [ ] **Step 8: Commit**
 
@@ -1253,27 +1249,39 @@ function revalidate() {
 Run: `npx tsc --noEmit`
 Expected: clean.
 
-- [ ] **Step 3: Prove it round-trips against the real database**
+- [ ] **Step 3: Prove the date mapping, read-only, from a column that already has rows**
 
-There is no UI yet, so exercise the table directly — insert, read back, confirm the types come out as expected, delete.
+The check that matters here is that a `date` column declared `{ mode: 'string' }` comes back as `"YYYY-MM-DD"` and never as a `Date`. Getting that wrong is what gave this project a day-early date bug across the whole app, and it is worth proving rather than assuming.
+
+`subscriptions` has no rows and this plan does not create any — but `transactions.date` is declared exactly the same way and has real rows. Reading it proves the same mapping:
 
 ```bash
 node --env-file=.env.local --input-type=module -e "
 import postgres from 'postgres';
 const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-const [u] = await sql.unsafe(\"select user_id from payment_methods limit 1\").simple();
-await sql.unsafe(\`insert into subscriptions (id,user_id,name,amount,cycle,anchor_date)
-  values ('plan-probe','\${u.user_id}','Probe',9.99,'monthly','2026-01-31')\`).simple();
-console.table(await sql.unsafe(\"select id,name,amount,cycle,anchor_date,status,stopped_on from subscriptions where id='plan-probe'\").simple());
-await sql.unsafe(\"delete from subscriptions where id='plan-probe'\").simple();
-console.log('rows left:', (await sql.unsafe(\"select count(*) from subscriptions\").simple())[0].count);
+const [r] = await sql.unsafe(\"select date, amount from transactions order by date desc limit 1\").simple();
+console.log('date  ', JSON.stringify(r.date), typeof r.date, r.date instanceof Date ? 'IS A DATE OBJECT' : 'is a string');
+console.log('amount', JSON.stringify(r.amount), typeof r.amount);
 await sql.end();
 "
 ```
 
-Expected: one row with `amount: 9.99` (a number, not a string — the driver is configured to parse `numeric`), `anchor_date: '2026-01-31'` as a plain string with no time or zone, `status: 'active'`, `stopped_on: null`. Then `rows left: 0`.
+Expected: the date prints as a quoted `"YYYY-MM-DD"` string, `typeof` `string`, and **not** `IS A DATE OBJECT`. The amount prints as a `number`, which is the driver's `numeric` parser doing its job — the same parser `subscriptions.amount` relies on.
 
-Also check the coalesce by hand, since no unit test reaches it: set a row to `paused`, note its `stopped_on`, then set the same row to `ended`. The date must not move. Then set it to `active`: the date must become null.
+Then confirm, read-only, that the new table is still empty and this plan has added nothing to it:
+
+```bash
+node --env-file=.env.local --input-type=module -e "
+import postgres from 'postgres';
+const sql = postgres(process.env.DATABASE_URL, { prepare: false });
+console.table(await sql.unsafe(\"select count(*) as subscriptions from subscriptions\").simple());
+await sql.end();
+"
+```
+
+Expected: `0`.
+
+Record two things in your report as **unverified, because they need a write**: that `saveSubscription` round-trips a row, and that `setSubscriptionStatus`'s `coalesce` keeps the first stop date across a paused→ended transition. Note for each the one action a person would take to check it.
 
 If `anchor_date` comes back as a `Date` or carries a time, the column type or the drizzle `mode: 'string'` is wrong — stop and fix it here. That exact mistake cost this project a day-early date bug across the whole app.
 
@@ -1718,38 +1726,15 @@ Start the dev server with `preview_start { name: "moooney" }` and open `/dev-pre
 
 Fix anything found in the component source, not in the harness, and re-check.
 
-- [ ] **Step 10: Check the real page against real data**
+- [ ] **Step 10: Check the real page in its empty state**
 
-Insert fixtures, look at the signed-in page in your own browser, then clean up.
+The database has no subscriptions and this plan adds none, so the real page renders its empty state — which is worth seeing, because it is what the user meets first.
 
-```bash
-node --env-file=.env.local --input-type=module -e "
-import postgres from 'postgres';
-const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-const [u] = await sql.unsafe(\"select user_id from payment_methods limit 1\").simple();
-for (const [n,a,c,d,s] of [['Spotify',11.99,'monthly','2026-01-15','active'],
-                           ['iCloud+',2.99,'monthly','2026-01-31','active'],
-                           ['Domain',22,'yearly','2026-03-09','active'],
-                           ['Figma',15,'monthly','2026-02-01','paused']]) {
-  await sql.unsafe(\`insert into subscriptions (id,user_id,name,amount,cycle,anchor_date,status)
-    values ('plan-t4-\${n}','\${u.user_id}','\${n}',\${a},'\${c}','\${d}','\${s}')\`).simple();
-}
-await sql.end(); console.log('seeded');
-"
-```
+Signed in, at `http://localhost:3000/subscriptions`: the NOTHING RECURRING. block, the small-caps page label, and nothing else. No stray zero, no `$0.00` hero, no empty Upcoming heading with nothing under it.
 
-Open `http://localhost:3000/subscriptions` in your own signed-in browser. Expect: monthly equivalent $31.81, annual $381.72, 3 active, Spotify and iCloud+ under Monthly, Domain under Yearly, Figma marked PAUSED with no next date.
+Everything with data in it was checked at Step 9 against the harness, whose fixtures cover more shapes than a seed would have: an emoji mark, a CJK name, a name long enough to truncate, all three cycles, and all three statuses.
 
-Then remove them:
-
-```bash
-node --env-file=.env.local --input-type=module -e "
-import postgres from 'postgres';
-const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-await sql.unsafe(\"delete from subscriptions where id like 'plan-t4-%'\").simple();
-await sql.end(); console.log('cleaned');
-"
-```
+Record in your report that the populated page is **verified against fixtures, not against live data**.
 
 - [ ] **Step 11: Typecheck, lint, build**
 
@@ -2174,20 +2159,31 @@ At `/dev-preview`, with the dev server running:
 4. At 375 wide the dialog is a bottom sheet flush to the bottom edge; at 1280 it is centred. Long content scrolls inside it (`max-h-[85vh] overflow-y-auto`) rather than pushing the Save button off screen.
 5. Dark mode: the inputs and the sheet are distinguishable from the page behind them.
 
-Saving from the harness will fail — there is no session — which is expected. Step 7 is the real test.
+Saving from the harness will fail — there is no session, and no session means no write. That is now the expected and the intended outcome.
 
-- [ ] **Step 7: Drive it for real**
+- [ ] **Step 7: Check the save path by reading it, and write down what a person must try**
 
-In your own signed-in browser at `http://localhost:3000/subscriptions`:
+Nothing in this plan writes to the database, so the form cannot be driven end to end here. Three of its four risk areas can still be checked without a write.
 
-1. **Add** one: name `Spotify`, amount `11.99`, Monthly, first payment `2026-01-31`. It appears under Monthly with the next payment on the 31st of the coming month — or the 28th/30th if that month is short. That clamp is the whole point; check the month it actually lands in.
-2. **Validation.** Empty name → "Name is required". Amount `0` → "Amount must be greater than zero". Amount `abc` → the same. Date `2026-02-30` → the native date input refuses it; if a browser lets it through, the action answers "Enter a valid first payment date".
-3. **Edit** the amount to `13.99` and save. The hero monthly equivalent moves by exactly $2.00.
-4. **Pause** it. It leaves the active count, the hero figure drops to exclude it, the row reads PAUSED and shows no next date.
-5. **Activate** it again. Everything comes back.
-6. **End** it. `stopped_on` is set to today — check: `select status, stopped_on from subscriptions where name='Spotify'`. Pause one as well: `stopped_on` is recorded for that too, and switching back to Active nulls it.
-7. **Delete** it. Click once for "Really delete?", once more to delete. It is gone.
-8. Confirm nothing leaked: `select count(*) from subscriptions` is back to 0.
+**Validation, in the harness.** Every rejection in `saveSubscription` happens before any database call, so the messages are reachable by reading the function and matching them to what the form can produce:
+
+1. Empty name → `Name is required`.
+2. Amount `0`, `-5`, or `abc` → `Amount must be greater than zero`. Confirm `parseFloat('abc')` is `NaN` and `Number.isFinite(NaN)` is false, so the guard catches it rather than writing a `NaN` amount.
+3. A cycle outside the three → `Pick a billing cycle`. Unreachable from the form's own `Select`, which is the point: it guards the action, not the widget.
+4. Date `2026-02-30` → `toCalendarDate` throws and the action answers `Enter a valid first payment date`. Task 1 unit-tests that throw directly, so this is about the catch being there.
+5. Emoji longer than two characters → `Use a single emoji`, counted with `Array.from` so a flag or a skin-tone modifier is not cut in half.
+
+**State transitions, by reading.** Confirm in `setSubscriptionStatus` that `active` nulls `stoppedOn`, that the other two use `coalesce(stopped_on, today)` so the first stop wins, and that the `where` filters on `userId` as well as `id`.
+
+**Double submission, in the harness.** Click Save with no session: the button must disable for the duration and re-enable on the error toast, so a second click cannot fire a second save.
+
+**Write this into your report as the user's checklist** — the part that genuinely needs a write, in the order it should be tried:
+
+- Add one: `Spotify`, `11.99`, Monthly, first payment `2026-01-31`. Expect it under Monthly, next payment on the 31st of the coming month — or the 28th or 30th where that month is short. That clamp is the feature; the month it lands in is the thing to look at.
+- Edit the amount to `13.99`: the hero monthly equivalent moves by exactly $2.00.
+- Pause it: it leaves the active count, the hero drops, the row reads PAUSED with no next date, and it shows the date it was paused.
+- Activate it: everything comes back and the pause date clears.
+- End it, then delete it: one click for "Really delete?", a second to delete.
 
 - [ ] **Step 8: Lint and build**
 
@@ -2809,32 +2805,19 @@ At `/dev-preview`:
 6. **Dark mode.** The `--sand` cells read as cells against `--paper`, and the `ring-ink` on today is visible.
 7. Console clean, no key warnings.
 
-- [ ] **Step 6: Check it against real data**
+- [ ] **Step 6: Check the two-column layout and the month-end clamp in the harness**
 
-Seed three subscriptions whose anchors land on the 1st, the 15th and the 31st, sign in, and open `/subscriptions`:
+The clamp itself is already proved exhaustively by Task 1's unit tests — the 31st across February in a common and a leap year, and the return to the 31st in March. What the harness has to show is that the calendar *renders* it.
 
-```bash
-node --env-file=.env.local --input-type=module -e "
-import postgres from 'postgres';
-const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-const [u] = await sql.unsafe(\"select user_id from payment_methods limit 1\").simple();
-for (const [n,a,c,d] of [['First',5,'monthly','2026-01-01'],
-                         ['Mid',10,'monthly','2026-01-15'],
-                         ['Last',20,'monthly','2026-01-31']]) {
-  await sql.unsafe(\`insert into subscriptions (id,user_id,name,amount,cycle,anchor_date)
-    values ('plan-t7-\${n}','\${u.user_id}','\${n}',\${a},'\${c}','\${d}')\`).simple();
-}
-await sql.end(); console.log('seeded');
-"
-```
+Add two more fixtures to `src/app/dev-preview/page.tsx`: the same `MonthOccurrences` shape for **February 2026** with a 28th occurrence, and for **March 2026** with a 31st, both from a notional 31st anchor. Render all three month fixtures one after another behind a simple toggle or simply stacked.
 
-1. At 1280 the list and the calendar sit side by side with the rule between them, and nothing overflows the panel — measure it, since an 8px overflow from a stray `-mx-2 px-2` has happened on this project before.
-2. Navigate to **February 2026**. "Last" appears on the **28th**. Navigate to **March**: back on the **31st**. This is the clamp working end to end, and it is the single most important thing on this screen.
-3. Expected for the month equals the sum of the marked days.
-4. At 375, the List/Calendar toggle switches which one shows; the hero and Upcoming stay put in both.
-5. Month navigation from the phone's calendar tab stays on the calendar tab.
+1. February shows the mark on the **28th**, March on the **31st**. That is the clamp, visible.
+2. Leading blanks are right in all three months: October 2026 starts Thursday (4 blanks), February 2026 starts Sunday (0), March 2026 starts Sunday (0).
+3. At 1280 the list and the calendar sit side by side with the rule between them. Measure the panel for overflow: `(() => { const p = document.querySelector('.d-split-panel'); return [...p.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > p.getBoundingClientRect().right + 1).length })()` must be `0`. An 8px overflow from a stray `-mx-2 px-2` has shipped on this project before.
+4. At 375 the List/Calendar toggle switches which one shows, and the hero and Upcoming stay put in both.
+5. Month navigation from the phone's calendar tab keeps `view=calendar` in the URL.
 
-Clean up: `delete from subscriptions where id like 'plan-t7-%'`.
+Record in your report that the calendar is **verified against fixtures**; the live page renders its empty state, which you can also check signed in.
 
 - [ ] **Step 7: Lint, build, commit**
 
@@ -3213,47 +3196,39 @@ and render it between the field grid and the status row, so the fields stay at t
 Run: `npx tsc --noEmit`
 Expected: clean.
 
-- [ ] **Step 5: Verify the whole link cycle against real data**
+- [ ] **Step 5: Verify the link rules without writing anything**
 
-Seed a subscription whose series is partly in the past, plus one transaction that could pay for it:
+The link cycle needs rows to exercise, and this plan creates none. Split the verification into the part that can be proved here and the part that cannot.
 
-```bash
-node --env-file=.env.local --input-type=module -e "
-import postgres from 'postgres';
-const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-const [u] = await sql.unsafe(\"select user_id from payment_methods limit 1\").simple();
-await sql.unsafe(\`insert into subscriptions (id,user_id,name,amount,cycle,anchor_date)
-  values ('plan-t8','\${u.user_id}','Linkable',11.99,'monthly','2026-06-15')\`).simple();
-await sql.unsafe(\`insert into transactions (id,user_id,date,amount,type,category,merchant,description)
-  values ('plan-t8-tx','\${u.user_id}','2026-09-17',11.99,'expense','Entertainment','Linkable','Linkable')\`).simple();
-await sql.end(); console.log('seeded');
-"
-```
+**Proved here, in the harness.** Extend `src/app/dev-preview/page.tsx` to render `SubscriptionHistory`'s markup against a fixture list of `OccurrenceState` values rather than a server call — the simplest way is to lift the presentational part into a small pure component the harness can feed, or to render the same JSX inline in the harness. Cover all four cases and check each reads correctly:
 
-Signed in, on `/subscriptions`:
+1. A future occurrence → **Upcoming**, with no Link control.
+2. A past occurrence with nothing linked → **Unconfirmed**, with a Link control. Not "Missed", not "Overdue", and above all not "Paid" — a past date is not evidence.
+3. A confirmed occurrence whose paid amount equals the expected one → **Confirmed**, one amount.
+4. A confirmed occurrence whose paid amount differs → **Confirmed**, the **actual** amount, with `expected $X` beneath it. This is the price-change case and it is the one a person will look for.
 
-1. Open **Linkable**. Payments lists June through the next one. The past months read **Unconfirmed** — not Paid. That is the rule.
-2. On the September row click **Link**. The 17 September transaction appears even though the occurrence is the 15th: the window is ±10 days.
-3. Click it. September turns **Confirmed** and shows $11.99.
-4. Open the calendar for September. The 15th shows the mark; tapping it reads **Confirmed**.
-5. **Nothing moved anywhere else.** Home, Overview and History show the same spending figures as before the link — linking changes a relation, not an amount.
-6. Click **Unlink**. September is Unconfirmed again, and the transaction is still in History, untouched.
-7. Change the subscription's amount to `13.99` and link September again. The row reads **$11.99 with "expected $13.99"** beneath it. A price change never rewrites what was paid — this is the behaviour point ② of the feedback asked for, and this is where it is visible.
-8. **The re-anchor case.** Change the first payment date from 2026-06-15 to 2026-06-20 and save. September stays **Confirmed**, now dated the 20th. Confirmation is matched by month; this is exactly what that bought.
-9. **Delete the subscription.** Then confirm the transaction survived with its link cleared:
+Then the state labels are words, not colours alone, at 375 and 1280 in both schemes.
+
+**Proved here, by reading.** Three rules live in the code and can be checked without running it:
+
+5. `getSubscriptionHistory` derives `state` as `hit ? 'confirmed' : date >= today ? 'upcoming' : 'unconfirmed'`. Confirm there is no path that infers payment from a date alone.
+6. `linkTransaction` checks that the subscription belongs to the user *before* the update, and the update's `where` also filters on `userId`. Both, not either.
+7. `unlinkTransaction` sets only `subscriptionId` and `subscriptionPeriod` to null and touches no other column — in particular not `amount`, not `date`, not `category`.
+
+Also confirm, read-only, that the foreign key would do the right thing on a delete:
 
 ```bash
 node --env-file=.env.local --input-type=module -e "
 import postgres from 'postgres';
 const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-console.table(await sql.unsafe(\"select id, amount, subscription_id, subscription_period from transactions where id='plan-t8-tx'\").simple());
-await sql.unsafe(\"delete from transactions where id='plan-t8-tx'\").simple();
-await sql.unsafe(\"delete from subscriptions where id='plan-t8'\").simple();
-await sql.end(); console.log('cleaned');
+console.table(await sql.unsafe(\"select conname, confdeltype from pg_constraint where conrelid='transactions'::regclass and conname like '%subscription%'\").simple());
+await sql.end();
 "
 ```
 
-Expected: the row exists, `amount: 11.99`, `subscription_id: null`, `subscription_period: null`. If the row is gone, the foreign key cascaded and Task 2's migration is wrong — a deleted subscription must never take a real expense with it.
+Expected: `confdeltype` `n`. SET NULL, not cascade: deleting a subscription must never take a real expense with it.
+
+**Not proved here.** Record these in your report as needing a person, one line each: linking a transaction dated two days off the occurrence; the month-granularity match surviving a billing-day move from the 15th to the 20th; and unlinking leaving the transaction in History untouched.
 
 - [ ] **Step 6: Lint, build, commit**
 
@@ -3282,40 +3257,53 @@ Prove the one rule holds, take the harness out, and ship.
 **Files:**
 - Delete: `src/app/dev-preview/page.tsx`
 
-- [ ] **Step 1: Record the figures before**
+- [ ] **Step 1: Prove the one rule from the code, not from a before-and-after**
 
-With the real database and no subscriptions yet, write down what the app says:
+The rule is that a subscription never enters a spending figure. The original check was to record Home, Overview, History and Accounts, add three subscriptions, and confirm nothing moved. That needs writes, and it would only have proved it for the three rows tried.
+
+Reading the queries proves it for all rows, which is the stronger claim:
+
+```bash
+grep -rln "subscriptions" src/app/actions/
+```
+
+Expected: `src/app/actions/subscriptions.ts` and nothing else. If `overview.ts`, `history.ts`, `accounts.ts`, `transactions.ts`, `manage.ts` or `time.ts` appears, something reads the new table into a figure and that is a Critical finding — except `manage.ts`, which Task 2 added a deletion guard to and which must reference it only in `deletePaymentMethod`. Check that one by eye.
+
+Then the reverse direction — nothing in the subscriptions action file writes to a table the other surfaces read:
+
+```bash
+grep -n "db.insert\|db.update\|db.delete" src/app/actions/subscriptions.ts
+```
+
+Expected: inserts and deletes only on `subscriptions`, and updates on `subscriptions` plus exactly two on `transactions` — the link and the unlink in Task 8, which set only `subscriptionId`, `subscriptionPeriod` and `updatedAt`.
+
+Finally, confirm read-only that the live figures cannot have moved, because the data has not:
 
 ```bash
 node --env-file=.env.local --input-type=module -e "
 import postgres from 'postgres';
 const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-console.table(await sql.unsafe(\`
+console.table(await sql.unsafe(\\`
   select count(*) as txns,
          sum(case when type='expense' then amount else 0 end) as spend,
-         sum(case when type in ('income','refund','balance_adjustment') then amount else 0 end) as in_
-  from transactions\`).simple());
+         count(subscription_id) as linked
+  from transactions\\`).simple());
 console.table(await sql.unsafe(\"select count(*) as subs from subscriptions\").simple());
 await sql.end();
 "
 ```
 
-Also note, from the signed-in app: Home's month spend, Overview's spend / income / net / net worth for the current month, and the Accounts net worth.
+Expected: 129 transactions, `linked` 0, `subs` 0 — unchanged from the fingerprint Task 2 recorded before the migration.
 
-- [ ] **Step 2: Add three subscriptions through the UI and compare**
+- [ ] **Step 2: Check the normalisation arithmetic against the unit tests, not the screen**
 
-Add three — one weekly, one monthly, one yearly, with amounts that would be obvious if they leaked, e.g. $7, $70, $700. Then re-run the query above and re-read all five figures.
+With $7 weekly, $70 monthly and $700 yearly active, the monthly equivalent is `7 × 365.25 / 7 / 12 + 70 + 700 / 12` = `30.4375 + 70 + 58.3333` = **$158.77**, and the annual equivalent is **$1,905.25** — twelve times the *unrounded* sum, which is what the code does, not twelve times $158.77.
 
-Expected: the transaction count and both sums are **identical**. Home, Overview and Accounts show **exactly** what they showed in Step 1. A subscription is an expectation; if any of these moved, the feature is double-counting and must not ship.
+`monthlyEquivalent` is unit-tested per cycle in Task 1. What is not unit-tested is the summing and rounding in `getSubscriptionsView`, which no test reaches because it needs a database. Read it instead and confirm by hand that it sums unrounded, rounds once at the end, and excludes paused and ended. Record the three expected figures in your report so the user has them to check against when they first add real subscriptions.
 
-- [ ] **Step 3: Confirm the totals arithmetic by hand**
+- [ ] **Step 3: Render those figures in the harness**
 
-With $7 weekly, $70 monthly and $700 yearly active, the monthly equivalent is
-`7 × 365.25 / 7 / 12 + 70 + 700 / 12` = `30.4375 + 70 + 58.3333` = **$158.77**, and the annual
-equivalent is **$1,905.25** — twelve times the *unrounded* sum, which is what the
-code does, not twelve times $158.77. The page must show these to the cent.
-
-Pause the weekly one. Monthly equivalent becomes **$128.33**, annual **$1,540.00**, active count 2.
+Set the harness hero to 158.77 / 1905.25 with an active count of 2 and confirm `ResponsiveAmount` renders both in full at 375 and 1280. The point is the typography, not the arithmetic — a figure that does not fit is the failure mode here.
 
 - [ ] **Step 4: The viewport and colour sweep**
 
@@ -3332,9 +3320,9 @@ On `/subscriptions`, signed in, with those three present. At **1280, 1440 and 19
 
 Walk `/`, `/overview`, `/accounts`, `/history`, `/settings` at 1280 and 375. Nothing about them should have changed except the Recurring row on Overview at 375 and the fifth sidebar entry at 1280. The bottom nav still has four tabs and still clears 320px.
 
-- [ ] **Step 6: Remove the test data and the harness**
+- [ ] **Step 6: Remove the harness**
 
-Delete the three subscriptions through the UI.
+There is no test data to remove — nothing was written.
 
 ```bash
 rm src/app/dev-preview/page.tsx
