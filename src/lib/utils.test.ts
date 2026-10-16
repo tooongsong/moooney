@@ -77,6 +77,11 @@ test('firstGrapheme returns a whole character, not a fragment of one', () => {
   assert.equal(firstGrapheme('網易云音樂'), '網');
   assert.equal(firstGrapheme('Spotify'), 'S');
   assert.equal(firstGrapheme(''), '');
+  assert.equal(firstGrapheme('   '), '');
+  // A pasted name can lead with a combining mark or a zero-width character.
+  // Segmenting from there renders a stray accent, or nothing at all.
+  assert.equal(firstGrapheme('\u0301abc'), 'a');
+  assert.equal(firstGrapheme('\u200bSpotify'), 'S');
   // The failure this replaces: the first code point of a joined emoji renders
   // as a different emoji entirely.
   assert.notEqual(firstGrapheme('👨‍👩‍👧 Family plan'), Array.from('👨‍👩‍👧 Family plan')[0]);

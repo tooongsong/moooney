@@ -66,7 +66,11 @@ export function isSingleGrapheme(value: string): boolean {
  *  Same reason as above: `value[0]` and `Array.from(value)[0]` both return a
  *  fragment of a joined emoji or a letter stripped of its accent. */
 export function firstGrapheme(value: string): string {
-  return [...new Intl.Segmenter().segment(value)][0]?.segment ?? '';
+  // Drop leading combining marks and invisible format characters first. A
+  // pasted name can start with either, and segmenting from there returns a
+  // stray accent or a zero-width character — a circle with nothing in it.
+  const start = value.replace(/^[\p{M}\p{Cf}\s]+/u, '');
+  return [...new Intl.Segmenter().segment(start)][0]?.segment ?? '';
 }
 
 /**
