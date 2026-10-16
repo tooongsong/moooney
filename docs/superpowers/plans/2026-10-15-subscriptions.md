@@ -717,14 +717,15 @@ create table if not exists subscriptions (
 
 alter table subscriptions enable row level security;
 
--- Guarded, unlike the earlier migrations: `create policy` has no IF NOT
--- EXISTS, and this file runs as one transaction, so an unguarded one makes
--- re-running the whole migration abort before anything after it.
+-- Guarded: `create policy` has no IF NOT EXISTS, and this file runs as one
+-- transaction, so an unguarded one aborts a re-run before anything after it.
 do $$
 begin
   if not exists (
     select 1 from pg_policies
-     where tablename = 'subscriptions' and policyname = 'own subscriptions'
+     where schemaname = 'public'
+       and tablename = 'subscriptions'
+       and policyname = 'own subscriptions'
   ) then
     create policy "own subscriptions" on subscriptions for all using (auth.uid() = user_id);
   end if;
@@ -735,9 +736,28 @@ create index if not exists subscriptions_user_idx on subscriptions (user_id);
 
 -- The payment link. `on delete set null`, not cascade: deleting a subscription
 -- must never delete a real expense — the money was still spent.
+--
+-- The foreign key is added separately, and guarded. An inline REFERENCES on an
+-- ADD COLUMN IF NOT EXISTS is not covered by the IF NOT EXISTS: Postgres lifts
+-- it into its own ADD CONSTRAINT subcommand during parse analysis, so a second
+-- run skips the column and then adds transactions_subscription_id_fkey1 beside
+-- the first. 0002 has the same latent bug.
 alter table transactions
-  add column if not exists subscription_id     text references subscriptions(id) on delete set null,
+  add column if not exists subscription_id     text,
   add column if not exists subscription_period date;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'transactions'::regclass
+       and conname = 'transactions_subscription_id_fkey'
+  ) then
+    alter table transactions
+      add constraint transactions_subscription_id_fkey
+      foreign key (subscription_id) references subscriptions(id) on delete set null;
+  end if;
+end $$;
 
 create index if not exists transactions_subscription_idx
   on transactions (subscription_id) where subscription_id is not null;
@@ -781,7 +801,7 @@ await sql.end();
 
 Expected: `subscriptions` with `rowsecurity: true`; policy `own subscriptions`; two columns, `subscription_id` (text, YES) and `subscription_period` (date, YES).
 
-Then check both foreign keys actually say SET NULL, because a default NO ACTION here is the difference between a subscription losing its account and an account becoming undeletable:
+Then check what each foreign key does on delete, because the two differ on purpose:
 
 ```bash
 node --env-file=.env.local --input-type=module -e "
@@ -792,7 +812,7 @@ await sql.end();
 "
 ```
 
-Expected: `confdeltype` is `n` (SET NULL) for `transactions.subscription_id`, and `a` (NO ACTION) for `subscriptions.payment_method_id`.
+Expected three rows: `transactions.subscription_id` is `n` (SET NULL), `subscriptions.payment_method_id` is `a` (NO ACTION), and `subscriptions.user_id` is `c` (CASCADE, so deleting the auth user takes their subscriptions).
 
 That `a` is deliberate. `on delete set null` there would let an account be deleted out from under a subscription, silently clearing a field the user filled in. Step 6 guards it in application code instead, the way the account's transactions are already guarded.
 
@@ -831,8 +851,7 @@ Then add two fields to the existing `transactions` table, after `receiptUrl`:
 
 ```ts
   // Which subscription this payment settled, and which occurrence of it. The
-  // link lives here because this row is the payment. Neither column is in any
-  // explicit `columns:` projection, so no existing query's payload changes.
+  // link lives here because this row is the payment.
   subscriptionId:     text('subscription_id')
     .references(() => subscriptions.id, { onDelete: 'set null' }),
   subscriptionPeriod: date('subscription_period', { mode: 'string' }),
@@ -966,6 +985,7 @@ Every read names its columns. This project has already spent 6.5 GB of egress on
 
 **Files:**
 - Create: `src/app/actions/subscriptions.ts`
+- Modify: `src/app/actions/settings.ts` — add `subscriptions` to `deleteAllData`
 
 **Interfaces:**
 - Consumes: `occurrencesBetween`, `nextOccurrence`, `monthlyEquivalent`, `periodKeyOf`, `Schedulable`, `SubscriptionCycle`, `SubscriptionStatus` from `@/lib/subscriptionSchedule`; `subscriptions`, `paymentMethods` from `@/db/schema`.
@@ -975,7 +995,7 @@ Every read names its columns. This project has already spent 6.5 GB of egress on
   - `interface SubscriptionsView { today; subscriptions: (SubscriptionRow & { next: CalendarDate | null })[]; monthlyTotal; annualTotal; activeCount; upcoming: UpcomingOccurrence[] }`
   - `getSubscriptionsView(): Promise<SubscriptionsView>`
   - `getRecurringMonthlyTotal(): Promise<{ monthly: number; activeCount: number }>`
-  - `getAccountOptions(): Promise<{ id: string; name: string }[]>`
+  - `getAccountOptions(include?: string | null): Promise<{ id: string; name: string; archived: boolean }[]>` — `include` keeps one archived account in the list, for the edit form
   - `saveSubscription(input: SaveSubscriptionInput): Promise<{ success: true; id: string } | { success: false; error: string }>`
   - `setSubscriptionStatus(id: string, status: SubscriptionStatus): Promise<{ success: boolean; error?: string }>`
   - `deleteSubscription(id: string): Promise<{ success: boolean; error?: string }>`
@@ -988,7 +1008,7 @@ Create `src/app/actions/subscriptions.ts`:
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
@@ -1129,13 +1149,26 @@ export async function getRecurringMonthlyTotal(): Promise<{ monthly: number; act
 
 /** id + name for the form's account picker. The existing listPaymentMethods
  *  selects every column, which this does not need. */
-export async function getAccountOptions(): Promise<{ id: string; name: string }[]> {
+export async function getAccountOptions(
+  /** Keep this one in the list even if archived — see below. */
+  include?: string | null,
+): Promise<{ id: string; name: string; archived: boolean }[]> {
   const user = await getUser();
-  return db.query.paymentMethods.findMany({
-    where: and(eq(paymentMethods.userId, user.id), isNull(paymentMethods.archivedAt)),
-    columns: { id: true, name: true },
+  const rows = await db.query.paymentMethods.findMany({
+    where: and(
+      eq(paymentMethods.userId, user.id),
+      include
+        ? or(isNull(paymentMethods.archivedAt), eq(paymentMethods.id, include))
+        : isNull(paymentMethods.archivedAt),
+    ),
+    columns: { id: true, name: true, archivedAt: true },
     orderBy: [asc(paymentMethods.name)],
   });
+  // Deleting an account that a subscription pays from archives it instead, on
+  // the promise that it stays findable. If the picker dropped archived
+  // accounts outright, opening that subscription would show an empty "Pays
+  // from" and silently clear the link on the next save.
+  return rows.map(({ id, name, archivedAt }) => ({ id, name, archived: archivedAt !== null }));
 }
 
 export interface SaveSubscriptionInput {
@@ -1259,6 +1292,14 @@ export async function setSubscriptionStatus(
   }
 }
 
+/**
+ * Subscriptions are part of "delete all my data".
+ *
+ * `deleteAllData` in `src/app/actions/settings.ts` clears transactions,
+ * transfers and custom categories. Add subscriptions to it, in the same
+ * user-scoped shape, or the one thing that survives a full wipe is the
+ * schedule of what the user pays for.
+ */
 export async function deleteSubscription(id: string): Promise<{ success: boolean; error?: string }> {
   const user = await getUser();
   try {
@@ -1288,22 +1329,29 @@ Expected: clean.
 
 - [ ] **Step 3: Prove the date mapping, read-only, from a column that already has rows**
 
-The check that matters here is that a `date` column declared `{ mode: 'string' }` comes back as `"YYYY-MM-DD"` and never as a `Date`. Getting that wrong is what gave this project a day-early date bug across the whole app, and it is worth proving rather than assuming.
+The check that matters here is that a `date` column declared `{ mode: 'string' }` arrives as `"YYYY-MM-DD"` and never as a `Date`. Getting that wrong is what gave this project a day-early date bug across the whole app.
 
-`subscriptions` has no rows and this plan does not create any — but `transactions.date` is declared exactly the same way and has real rows. Reading it proves the same mapping:
+It has to go **through drizzle**, not through a raw `postgres()` client. The raw client parses a `date` column into a JS `Date`; it is drizzle's column mapper that hands back the string. A check that skips drizzle proves nothing and reports a bug that is not there.
+
+`subscriptions` has no rows and this plan creates none, but `transactions.date` is declared exactly the same way and has real rows behind it:
 
 ```bash
 node --env-file=.env.local --input-type=module -e "
 import postgres from 'postgres';
-const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-const [r] = await sql.unsafe(\"select date, amount from transactions order by date desc limit 1\").simple();
-console.log('date  ', JSON.stringify(r.date), typeof r.date, r.date instanceof Date ? 'IS A DATE OBJECT' : 'is a string');
-console.log('amount', JSON.stringify(r.amount), typeof r.amount);
-await sql.end();
+import { drizzle } from 'drizzle-orm/postgres-js';
+import * as schema from './src/db/schema.ts';
+const client = postgres(process.env.DATABASE_URL, { prepare: false, types: { numeric: { to: 1700, from: [1700], serialize: (x) => String(x), parse: (x) => parseFloat(x) } } });
+const db = drizzle(client, { schema });
+const row = await db.query.transactions.findFirst({ columns: { date: true, amount: true } });
+console.log('date  ', JSON.stringify(row.date), typeof row.date, row.date instanceof Date ? 'IS A DATE OBJECT — BUG' : 'is a string — correct');
+console.log('amount', JSON.stringify(row.amount), typeof row.amount);
+await client.end();
 "
 ```
 
-Expected: the date prints as a quoted `"YYYY-MM-DD"` string, `typeof` `string`, and **not** `IS A DATE OBJECT`. The amount prints as a `number`, which is the driver's `numeric` parser doing its job — the same parser `subscriptions.amount` relies on.
+Expected: the date is a quoted `"YYYY-MM-DD"` string and **not** a `Date`.
+
+The amount comes back a **string**, and that is correct, not a bug. `src/db/index.ts` configures the driver to parse `numeric` into a number, and then drizzle's own numeric mapper calls `String()` on it again. That round trip is the entire reason `toNum` exists in the actions, and why `.$type<number>()` is a type-level claim the runtime does not honour. If you ever see a number here, the mapper changed and `toNum` needs revisiting.
 
 Then confirm, read-only, that the new table is still empty and this plan has added nothing to it:
 
@@ -3320,17 +3368,17 @@ Finally, confirm read-only that the live figures cannot have moved, because the 
 node --env-file=.env.local --input-type=module -e "
 import postgres from 'postgres';
 const sql = postgres(process.env.DATABASE_URL, { prepare: false });
-console.table(await sql.unsafe(\\`
+console.table(await sql.unsafe(\`
   select count(*) as txns,
          sum(case when type='expense' then amount else 0 end) as spend,
          count(subscription_id) as linked
-  from transactions\\`).simple());
+  from transactions\`).simple());
 console.table(await sql.unsafe(\"select count(*) as subs from subscriptions\").simple());
 await sql.end();
 "
 ```
 
-Expected: 129 transactions, `linked` 0, `subs` 0 — unchanged from the fingerprint Task 2 recorded before the migration.
+Expected: `linked` 0 and `subs` 0. The transaction count is whatever it is — it was 129 when Task 2 fingerprinted it, and it drifts as the user adds expenses; the two zeros are the part that means anything.
 
 - [ ] **Step 2: Check the normalisation arithmetic against the unit tests, not the screen**
 
@@ -3344,12 +3392,12 @@ Set the harness hero to 158.77 / 1905.25 with an active count of 2 and confirm `
 
 - [ ] **Step 4: The viewport and colour sweep**
 
-On `/subscriptions`, signed in, with those three present. At **1280, 1440 and 1920**, and at **375**, in **both colour schemes**:
+Two surfaces, because neither alone covers it: `/dev-preview`, which has the fixtures, and `/subscriptions` signed in, which has the real empty state. At **1280, 1440 and 1920**, and at **375**, in **both colour schemes**:
 
 1. No horizontal scroll: `document.documentElement.scrollWidth <= document.documentElement.clientWidth`.
 2. Content stays centred and the layout stops growing — the page uses `d-max-xl`, so 1920 should look like 1440 with wider margins, not stretched.
 3. Nothing overflows the right panel. Measure it: `(() => { const p = document.querySelector('.d-split-panel'); return [...p.querySelectorAll('*')].filter(e => e.getBoundingClientRect().right > p.getBoundingClientRect().right + 1).length })()` must be `0`.
-4. **No amount is truncated anywhere.** Edit one to `$123,456.78` and check the hero, the list row, the upcoming row and the calendar dialog.
+4. **No amount is truncated anywhere.** In the harness, set a fixture to `123456.78` and check the hero, the list row, the upcoming row and the calendar dialog. A six-figure amount in a narrow list row is the case that breaks first.
 5. The dialog is a bottom sheet at 375 and centred at 1280.
 6. Console clean on every page: `read_console_messages { onlyErrors: true }`.
 
