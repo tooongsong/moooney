@@ -675,6 +675,7 @@ One new table and two nullable columns. The link lives on the transaction becaus
 **Files:**
 - Create: `supabase/migrations/0004_subscriptions.sql`
 - Modify: `src/db/schema.ts`
+- Modify: `src/app/actions/manage.ts`
 
 **Interfaces:**
 - Consumes: nothing from Task 1.
@@ -744,9 +745,13 @@ create index if not exists transactions_subscription_idx
 
 No CHECK constraints on `cycle` or `status`: `payment_methods.type` is typed as a drizzle enum with a plain `text` column behind it, and this follows that.
 
-- [ ] **Step 2: Apply it**
+- [ ] **Step 2: Apply it — ALREADY DONE, do not run this again**
 
-The `DIRECT_URL` host no longer resolves; use `DATABASE_URL`, which is the Supabase pooler. DDL runs fine over it.
+This ran once, on 2026-10-15, and the table and columns are live. It is recorded here so the migration's history is readable, not as a step to repeat: the standing constraint is that nothing writes to the database, and that includes re-applying an idempotent migration.
+
+The guard added to `create policy` since then is for a fresh database or a restore, not for this one.
+
+For the record, this is how it was applied. `DIRECT_URL`'s host no longer resolves; `DATABASE_URL` is the Supabase pooler and DDL runs fine over it.
 
 ```bash
 node --env-file=.env.local --input-type=module -e "
@@ -902,7 +907,7 @@ Three things changed beyond the subscriptions check, and all three are deliberat
 2. **Transfers.** `transfers.from_account_id` and `transfers.to_account_id` reference `payment_methods` with NO ACTION too, and nothing checked them. An account with a transfer and no transactions already raised a raw constraint error before this branch existed. Guarding two of the three referencing tables and not the third would be arbitrary.
 3. **Early return on a missing account.** The old code fell through to the delete when the lookup found nothing, which worked only because the delete then matched nothing either.
 
-The `columns:` on every read is the project's standing rule
+The `columns:` on every read is the project's standing rule, and the first two were missing it — a bare `findFirst` on `transactions` pulls every column of the row it finds.
 
 - [ ] **Step 7: Read the guard against its own call graph**
 
