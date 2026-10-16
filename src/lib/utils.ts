@@ -84,7 +84,11 @@ export function firstGrapheme(value: string): string {
  * decimal point — and anything else returns NaN, which the callers reject.
  */
 export function parseAmountInput(value: string): number {
-  const cleaned = value.replace(/[$\s]/g, '');
+  // Trim the ends and take a leading currency symbol; do NOT delete every
+  // space and $ wherever they sit, which fuses "11 99" into 1199 and "1$2"
+  // into 12 — the same hundredfold error, from the same instinct to be
+  // forgiving about characters whose position is the whole meaning.
+  const cleaned = value.trim().replace(/^\$\s*/, '');
   if (cleaned === '') return NaN;
   // [1-9], not \d: "0,500" is 0.5 to a decimal-comma reader, and read as
   // grouping it would be 500.

@@ -95,7 +95,8 @@ test('parseAmountInput reads what a person types, including the separators we pr
 });
 
 test('parseAmountInput refuses anything that is not a number', () => {
-  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5', '.']) {
+  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5', '.',
+                     '11 99', '5 99', '1 2', '1$2', '1 288.88']) {
     assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
   }
 });
@@ -109,6 +110,19 @@ test('a comma is only a thousands separator, never a decimal point', () => {
   // Real grouping still reads.
   assert.equal(parseAmountInput('12,345.67'), 12345.67);
   assert.equal(parseAmountInput('1,234,567.89'), 1234567.89);
+});
+
+test('a separator is read by where it sits, not deleted wherever it is found', () => {
+  // Deleting every space and $ is the forgiving-looking choice, and it is the
+  // same hundredfold-upward error as the comma one: "11 99" fused into 1199.
+  for (const bad of ['11 99', '1$2', '1 2', '1 288.88']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
+  // A leading symbol and surrounding space are still fine — that is what a
+  // person pastes.
+  assert.equal(parseAmountInput('$1,288.88'), 1288.88);
+  assert.equal(parseAmountInput('$ 1,288.88'), 1288.88);
+  assert.equal(parseAmountInput('  11.99  '), 11.99);
 });
 
 test('a thousands group never starts with zero', () => {
