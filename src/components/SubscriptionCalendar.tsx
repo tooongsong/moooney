@@ -91,8 +91,20 @@ export function SubscriptionCalendar({
               key={date}
               type="button"
               disabled={items.length === 0}
+              // Without this the only thing announced is the day number. The
+              // marks are aria-hidden, so a screen reader would have no way to
+              // know which days carry a charge — which is the whole grid.
+              aria-label={
+                items.length > 0
+                  ? `${MONTH_NAMES[data.month - 1]} ${Number(date.slice(8))}, ` +
+                    `${items.length} ${items.length === 1 ? 'charge' : 'charges'}`
+                  : undefined
+              }
               onClick={() => setOpenDay(date)}
               className={cn(
+                // rounded-lg, not xl: this theme maps lg to 16px, which is on
+                // the 16/24/pill scale, and xl to 20px, which is not — and at a
+                // 43px cell a 20px radius turns the grid into circles.
                 'aspect-square rounded-lg bg-sand p-1 flex flex-col items-center justify-start gap-0.5',
                 'transition-colors disabled:cursor-default',
                 items.length > 0 && 'hover:bg-ink/10',

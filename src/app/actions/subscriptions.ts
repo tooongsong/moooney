@@ -396,7 +396,12 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   // produce "2026-13-01", which is not a date.
   let year = Number(monthKey?.slice(0, 4));
   let month = Number(monthKey?.slice(5, 7));
-  if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12)) {
+  // The year bounds are not pedantry. makeCalendarDate does not pad the year,
+  // so "0001-05" survives the shape check and produces "1-05-01", which is
+  // not a date any column will accept. At the other end, 9999-12 lets a weekly
+  // series step into year 10000, where comparing dates as strings stops being
+  // chronological: it returns 4.7 million dates instead of five.
+  if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12) || !(year >= 1000 && year < 9999)) {
     year = Number(today.slice(0, 4));
     month = Number(today.slice(5, 7));
   }
