@@ -1386,6 +1386,30 @@ Append to `src/lib/utils.ts`:
 export function isSingleGrapheme(value: string): boolean {
   return [...new Intl.Segmenter().segment(value)].length === 1;
 }
+
+/** The first character of `value` as a person sees it, or '' if there is none.
+ *  Same reason as above: `value[0]` and `Array.from(value)[0]` both return a
+ *  fragment of a joined emoji or a letter stripped of its accent. */
+export function firstGrapheme(value: string): string {
+  return [...new Intl.Segmenter().segment(value)][0]?.segment ?? '';
+}
+
+/**
+ * Read a typed money amount, or NaN.
+ *
+ * `parseFloat` is the trap here: it stops at the first character it cannot
+ * read, so "1,288.88" becomes 1 — valid, positive, past every guard, and
+ * silently a thousand times too small. Since the app formats with thousands
+ * separators, typing one back in is the obvious thing to do.
+ *
+ * Grouping separators and a currency symbol are stripped; anything else
+ * returns NaN, which the callers already reject.
+ */
+export function parseAmountInput(value: string): number {
+  const cleaned = value.replace(/[$,\s]/g, '');
+  if (cleaned === '' || !/^\d*\.?\d*$/.test(cleaned)) return NaN;
+  return Number(cleaned);
+}
 ```
 
 Then append to `src/lib/utils.test.ts`, adding `isSingleGrapheme` to its import:
@@ -1419,6 +1443,34 @@ test('one grapheme means one, not one emoji — a letter passes', () => {
   // Emoji; a letter there renders as a letter and harms nothing.
   assert.equal(isSingleGrapheme('a'), true);
   assert.equal(isSingleGrapheme('字'), true);
+});
+
+test('firstGrapheme returns a whole character, not a fragment of one', () => {
+  assert.equal(firstGrapheme('🧑‍💻 Dev tools'), '🧑‍💻');
+  assert.equal(firstGrapheme('網易云音樂'), '網');
+  assert.equal(firstGrapheme('Spotify'), 'S');
+  assert.equal(firstGrapheme(''), '');
+  // The failure this replaces: the first code point of a joined emoji renders
+  // as a different emoji entirely.
+  assert.notEqual(firstGrapheme('👨‍👩‍👧 Family plan'), Array.from('👨‍👩‍👧 Family plan')[0]);
+});
+
+test('parseAmountInput reads what a person types, including the separators we printed', () => {
+  assert.equal(parseAmountInput('1288.88'), 1288.88);
+  assert.equal(parseAmountInput('1,288.88'), 1288.88);
+  assert.equal(parseAmountInput('$1,288.88'), 1288.88);
+  assert.equal(parseAmountInput(' 11.99 '), 11.99);
+  assert.equal(parseAmountInput('.5'), 0.5);
+  assert.equal(parseAmountInput('7'), 7);
+  // The bug: parseFloat('1,288.88') is 1 — positive, finite, and past every
+  // guard the action has.
+  assert.notEqual(parseAmountInput('1,288.88'), parseFloat('1,288.88'));
+});
+
+test('parseAmountInput refuses anything that is not a number', () => {
+  for (const bad of ['', '   ', 'abc', '1.2.3', '1-2', '12px', '--5', '1e5']) {
+    assert.ok(Number.isNaN(parseAmountInput(bad)), `${JSON.stringify(bad)} should be NaN`);
+  }
 });
 
 test('an empty string is not one grapheme', () => {
@@ -1587,7 +1639,7 @@ Expected: PASS.
 Create `src/components/SubscriptionMark.tsx`:
 
 ```tsx
-import { cn } from '@/lib/utils';
+import { cn, firstGrapheme } from '@/lib/utils';
 
 /**
  * A subscription's identity mark.
@@ -1608,9 +1660,10 @@ export function SubscriptionMark({
   size?: number;
   className?: string;
 }) {
-  // Array.from, not name[0]: a name beginning with an emoji or any astral
-  // character would otherwise be cut in half mid-surrogate-pair.
-  const initial = Array.from(name.trim())[0] ?? '?';
+  // By grapheme, not by code point: a name beginning with a joined emoji
+  // would otherwise render as whichever emoji its first code point happens
+  // to be, and an accented letter would lose its accent.
+  const initial = firstGrapheme(name.trim()) || '?';
   const mark = emoji?.trim();
   return (
     <span
@@ -2024,7 +2077,7 @@ import {
   type SubscriptionRow,
 } from '@/app/actions/subscriptions';
 import type { SubscriptionCycle, SubscriptionStatus } from '@/lib/subscriptionSchedule';
-import { cn } from '@/lib/utils';
+import { cn, parseAmountInput } from '@/lib/utils';
 
 // Radix refuses an empty string as a SelectItem value, so "none" needs a name.
 const NONE = '__none__';
@@ -2081,7 +2134,7 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
     const res = await saveSubscription({
       id: subscription?.id,
       name,
-      amount: parseFloat(amount),
+      amount: parseAmountInput(amount),
       cycle,
       anchorDate,
       emoji,
@@ -2400,7 +2453,7 @@ Nothing in this plan writes to the database, so the form cannot be driven end to
 **Validation, in the harness.** Most rejections in `saveSubscription` happen before any database call, so the messages are reachable by reading the function and matching them to what the form can produce. Two do not, and they are marked:
 
 1. Empty name → `Name is required`.
-2. Amount `0`, `-5`, or `abc` → `Amount must be greater than zero`. Confirm `parseFloat('abc')` is `NaN` and `Number.isFinite(NaN)` is false, so the guard catches it rather than writing a `NaN` amount.
+2. Amount `0`, `-5`, `abc` or `1.2.3` → `Amount must be greater than zero`, because `parseAmountInput` returns NaN for all but the first two and `Number.isFinite(NaN)` is false. **`1,288.88` must save as 1288.88, not 1.00** — that is the case `parseFloat` got wrong, and it is the one worth typing by hand.
 3. A cycle outside the three → `Pick a billing cycle`. Unreachable from the form's own `Select`, which is the point: it guards the action, not the widget.
 4. Date `2026-02-30` → `toCalendarDate` throws and the action answers `Enter a valid first payment date`. Task 1 unit-tests that throw directly, so this is about the catch being there.
 5. More than one emoji → `Use a single emoji`, counted with `Intl.Segmenter` so that 🧑‍💻 and 🏳️‍🌈 pass as the single characters a person sees them as, while `🎬🎵` and `ab` do not.
@@ -2608,6 +2661,36 @@ nothing above it."
 ### Task 7: The calendar
 
 A month of days with the charges marked on them. Desktop shows it beside the list; the phone toggles.
+
+### Reaching the harness
+
+Two obstacles, both discovered the hard way in Tasks 4-5, both with a settled answer.
+
+**`src/proxy.ts` redirects `/dev-preview` to `/login`.** Its matcher is a catch-all that excludes only static assets, so the harness is unreachable without an exemption. Add `dev-preview` to the alternation:
+
+```ts
+export const config = {
+  matcher: [
+    // dev-preview is the fixture harness. It is deleted in the last task,
+    // along with this exemption; the route also calls notFound() outside
+    // development, so neither guard stands alone.
+    '/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|workbox-.*|icons|splash|api|auth/callback|dev-preview).*)',
+  ],
+};
+```
+
+Commit it. Leaving it uncommitted means re-applying it in every later task and risking it in a `git clean`.
+
+**The preview tool cannot start this worktree's dev server.** It reads `/Users/phoebesong/Desktop/moooney/.claude/launch.json`, which offers `moooney-dev` and `moooney-prod` — both of which run the *main checkout*, not this branch. The worktree's own `.claude/launch.json` is not the file it reads.
+
+So start the server yourself in the background and point the browser at it:
+
+```bash
+npm run dev
+```
+
+Run that with `run_in_background`, wait for it to report ready, then open the pane with the preview tool's `url` form at `http://localhost:3000/dev-preview` rather than its `name` form. Stop the server when you are done and confirm the port is free. This is the one case where a shell dev server is right: the tool that would normally own it cannot reach this checkout.
+
 
 **Files:**
 - Modify: `src/app/actions/subscriptions.ts`
@@ -3079,6 +3162,8 @@ dated today may simply not have landed."
 ### Task 8: Linking a payment to the transaction that paid it
 
 Manual only. A past date is never evidence; a link is.
+
+The harness is reached the same way as in Task 7 — `dev-preview` is already exempt in `src/proxy.ts` by then, and the dev server still has to be started from a shell rather than by the preview tool.
 
 **Files:**
 - Modify: `src/app/actions/subscriptions.ts`
@@ -3564,14 +3649,28 @@ Two surfaces, because neither alone covers it: `/dev-preview`, which has the fix
 
 Walk `/`, `/overview`, `/accounts`, `/history`, `/settings` at 1280 and 375. Nothing about them should have changed except the Recurring row on Overview at 375 and the fifth sidebar entry at 1280. The bottom nav still has four tabs and still clears 320px.
 
-- [ ] **Step 6: Remove the harness**
+- [ ] **Step 6: Remove the harness, and everything that existed for it**
 
-There is no test data to remove — nothing was written.
+There is no test data to remove — nothing was written. There are two pieces of scaffolding.
 
 ```bash
 rm src/app/dev-preview/page.tsx
 rmdir src/app/dev-preview
 ```
+
+Then take the exemption back out of `src/proxy.ts`, restoring the matcher to exactly:
+
+```ts
+    '/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|workbox-.*|icons|splash|api|auth/callback).*)',
+```
+
+And confirm nothing is left behind:
+
+```bash
+grep -rn "dev-preview" src/ docs/superpowers/plans/ ; echo "exit $?"
+```
+
+Expected: matches only inside the plan document, which is history. A match anywhere under `src/` means a piece of the harness shipped.
 
 A stale `.next/dev` type file can make `tsc` complain about the route after the folder is gone. If that happens, stop the dev server and `rm -rf .next` before believing the error — it has happened on this project before.
 
