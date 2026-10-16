@@ -983,6 +983,7 @@ Every read names its columns. This project has already spent 6.5 GB of egress on
 
 **Files:**
 - Create: `src/app/actions/subscriptions.ts`
+- Modify: `src/lib/utils.ts` and `src/lib/utils.test.ts` — `isSingleGrapheme`
 - Modify: `src/app/actions/settings.ts` — `deleteAllData` must clear subscriptions too
 - Modify: `src/app/settings/ExportButtons.tsx` — the confirm copy names what is deleted
 
@@ -1014,6 +1015,7 @@ import { db } from '@/db';
 import { paymentMethods, subscriptions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
 import { daysBetween, safeTimeZone, toCalendarDate, todayIn, type CalendarDate } from '@/lib/dates';
+import { isSingleGrapheme } from '@/lib/utils';
 import {
   monthlyEquivalent,
   nextOccurrence,
@@ -1250,12 +1252,8 @@ export async function saveSubscription(
     return { success: false, error: 'Amount is too large' };
   }
 
-  // One emoji, not a sentence — and "one" means what a person sees, which
-  // code points do not. 🧑‍💻 is three code points, 🏳️‍🌈 is four and 👨‍👩‍👧 is five,
-  // so counting them rejects half the emoji keyboard while still accepting
-  // "ab". Intl.Segmenter counts graphemes, which is the thing being limited.
   const emoji = clean(input.emoji);
-  if (emoji && [...new Intl.Segmenter().segment(emoji)].length > 1) {
+  if (emoji && !isSingleGrapheme(emoji)) {
     return { success: false, error: 'Use a single emoji' };
   }
 
@@ -1369,7 +1367,70 @@ function revalidate() {
 }
 ```
 
-- [ ] **Step 2: Put subscriptions into "delete all my data"**
+- [ ] **Step 2: Extract the grapheme check, and test it**
+
+The emoji rule is the one piece of non-trivial logic in this file, it already shipped wrong once, and nothing in `npm test` would catch it going wrong again — a server action that calls `getUser()` cannot be unit-tested here. The predicate itself is pure, so lift it out.
+
+Append to `src/lib/utils.ts`:
+
+```ts
+/**
+ * True when `value` is exactly one character as a person sees it.
+ *
+ * Code points are the wrong unit and this is the bug worth remembering: 🧑‍💻
+ * is three of them, 🏳️‍🌈 four, 👨‍👩‍👧 five, 1️⃣ three. Counting code points
+ * rejects half the emoji keyboard while still accepting "ab". A grapheme
+ * cluster is the unit being limited, and Intl.Segmenter is the only thing
+ * that knows where they end.
+ */
+export function isSingleGrapheme(value: string): boolean {
+  return [...new Intl.Segmenter().segment(value)].length === 1;
+}
+```
+
+Then append to `src/lib/utils.test.ts`, adding `isSingleGrapheme` to its import:
+
+```ts
+test('a joined emoji is one grapheme, however many code points it is made of', () => {
+  // Each of these was rejected by the code-point rule this replaced. The
+  // counts are what Array.from would have returned.
+  for (const [emoji, codePoints] of [
+    ['🧑‍💻', 3],   // zero-width joiner
+    ['🏳️‍🌈', 4],   // flag + variation selector + ZWJ
+    ['👨‍👩‍👧', 5],   // two joiners
+    ['1️⃣', 3],   // keycap
+    ['🏋️‍♀️', 5],   // gender sign, presentation selectors
+    ['👍🏽', 2],   // skin-tone modifier
+    ['🇯🇵', 2],   // regional indicator pair
+  ] as const) {
+    assert.equal(Array.from(emoji).length, codePoints, `${emoji} code points`);
+    assert.equal(isSingleGrapheme(emoji), true, `${emoji} should be one grapheme`);
+  }
+});
+
+test('two characters are two graphemes, emoji or not', () => {
+  for (const two of ['🎬🎵', 'ab', '🧑‍💻🧑‍💻', '1️⃣2️⃣', 'a🎵']) {
+    assert.equal(isSingleGrapheme(two), false, `${two} should not be one grapheme`);
+  }
+});
+
+test('one grapheme means one, not one emoji — a letter passes', () => {
+  // The rule limits how many, not what. The field is optional and labelled
+  // Emoji; a letter there renders as a letter and harms nothing.
+  assert.equal(isSingleGrapheme('a'), true);
+  assert.equal(isSingleGrapheme('字'), true);
+});
+
+test('an empty string is not one grapheme', () => {
+  // The caller guards with `emoji &&`, but the predicate should not claim
+  // that nothing is something.
+  assert.equal(isSingleGrapheme(''), false);
+});
+```
+
+Run `npm test`. Then, to prove the test can fail, temporarily put `Array.from(value).length === 1` in the function body: the first test must fail on 🧑‍💻. Put it back. Report both outputs.
+
+- [ ] **Step 3: Put subscriptions into "delete all my data"**
 
 `deleteAllData` clears transactions, transfers and custom categories. Without this line the one thing that survives a full wipe is the schedule of everything the user pays for — which is the single most personal list in the app.
 
@@ -1399,12 +1460,12 @@ Do not run it. This is one of the paths recorded as unverified — it needs a wr
 
 Check the user-facing copy while you are here: `ExportButtons.tsx` tells the user this clears "transactions and categories". It now clears subscriptions too, and the sentence should say so.
 
-- [ ] **Step 3: Typecheck**
+- [ ] **Step 4: Typecheck**
 
 Run: `npx tsc --noEmit`
 Expected: clean.
 
-- [ ] **Step 4: Prove the date mapping, read-only, from a column that already has rows**
+- [ ] **Step 5: Prove the date mapping, read-only, from a column that already has rows**
 
 The check that matters here is that a `date` column declared `{ mode: 'string' }` arrives as `"YYYY-MM-DD"` and never as a `Date`. Getting that wrong is what gave this project a day-early date bug across the whole app.
 
@@ -1447,10 +1508,11 @@ Record two things in your report as **unverified, because they need a write**: t
 
 If `anchor_date` comes back as a `Date` or carries a time, the column type or the drizzle `mode: 'string'` is wrong — stop and fix it here. That exact mistake cost this project a day-early date bug across the whole app.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/app/actions/subscriptions.ts src/app/actions/settings.ts src/app/settings/ExportButtons.tsx
+git add src/app/actions/subscriptions.ts src/app/actions/settings.ts \
+        src/app/settings/ExportButtons.tsx src/lib/utils.ts src/lib/utils.test.ts
 git commit -m "Add subscription server actions
 
 Totals count active subscriptions only — a paused one is not a commitment.
@@ -2133,7 +2195,7 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
                   <Label htmlFor="sub-emoji">Emoji</Label>
-                  {/* No maxLength: it counts UTF-16 units, and 🏋️‍♀️ is seven of
+                  {/* No maxLength: it counts UTF-16 units, and 🏋️‍♀️ is six of
                       them, so the cap would cut the sequence mid-joiner and
                       leave a mojibake fragment. The action validates by
                       grapheme instead. */}
@@ -2352,6 +2414,7 @@ Nothing in this plan writes to the database, so the form cannot be driven end to
 **Write this into your report as the user's checklist** — the part that genuinely needs a write, in the order it should be tried:
 
 - Add one: `Spotify`, `11.99`, Monthly, first payment `2026-01-31`. Expect it under Monthly, next payment on the 31st of the coming month — or the 28th or 30th where that month is short. That clamp is the feature; the month it lands in is the thing to look at.
+- Give it a joined emoji — 🧑‍💻 or 🏳️‍🌈 — and save. Reopen it. The mark shows the whole emoji and the form shows the same one, not a fragment. This is the one part of the grapheme rule that needs a real write: everything up to the insert is unit-tested, and what happens to the bytes afterwards is not.
 - Edit the amount to `13.99`: the hero monthly equivalent moves by exactly $2.00.
 - Pause it: it leaves the active count, the hero drops, the row reads PAUSED with no next date, and it shows the date it was paused.
 - Activate it: everything comes back and the pause date clears.
@@ -3386,7 +3449,7 @@ Then the state labels are words, not colours alone, at 375 and 1280 in both sche
 
 5. `getSubscriptionHistory` derives `state` as `hit ? 'confirmed' : date >= today ? 'upcoming' : 'unconfirmed'`. Confirm there is no path that infers payment from a date alone.
 6. `linkTransaction` checks that the subscription belongs to the user *before* the update, and the update's `where` also filters on `userId`. Both, not either.
-7. `unlinkTransaction` sets only `subscriptionId` and `subscriptionPeriod` to null and touches no other column — in particular not `amount`, not `date`, not `category`.
+7. `unlinkTransaction` sets `subscriptionId` and `subscriptionPeriod` to null, and `updatedAt`. Nothing else — in particular not `amount`, not `date`, not `category`.
 
 Also confirm, read-only, that the foreign key would do the right thing on a delete:
 
@@ -3454,7 +3517,7 @@ Then the reverse direction — nothing in the subscriptions action file writes t
 grep -n "\.insert(\|\.update(\|\.delete(" src/app/actions/subscriptions.ts
 ```
 
-Match on the method, not on `db.`: every write in that file is chained across two lines (`await db`, then `.update(...)` on the next), so a `db.update` pattern finds one write out of four and the check then passes whatever is added beside it.
+Match on the method, not on `db.`: three of the four writes are chained across two lines (`await db`, then `.update(...)` on the next), so a `db.update` pattern finds only the single-line insert and the check then passes whatever is added beside it. A raw `db.execute(sql\`...\`)` would still slip past this; nothing in the plan adds one.
 
 Expected: inserts and deletes only on `subscriptions`, and updates on `subscriptions` plus exactly two on `transactions` — the link and the unlink in Task 8, which set only `subscriptionId`, `subscriptionPeriod` and `updatedAt`.
 
