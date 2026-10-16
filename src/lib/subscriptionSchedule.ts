@@ -149,3 +149,12 @@ export function monthlyEquivalent(amount: number, cycle: SubscriptionCycle): num
   if (cycle === 'yearly') return amount / 12;
   return amount;
 }
+
+/** "in 4 days" / "yesterday". Pairs with the absolute date, never replaces it:
+ *  "in 4 days" alone is useless a week later on a screenshot. */
+export function relativeDayLabel(days: number): string {
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  if (days === -1) return 'yesterday';
+  return days > 0 ? `in ${days} days` : `${-days} days ago`;
+}

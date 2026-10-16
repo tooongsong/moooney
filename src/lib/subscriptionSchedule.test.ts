@@ -5,6 +5,7 @@ import {
   nextOccurrence,
   periodKeyOf,
   monthlyEquivalent,
+  relativeDayLabel,
   type Schedulable,
 } from './subscriptionSchedule.ts';
 
@@ -239,4 +240,12 @@ test('a yearly amount normalises to a twelfth', () => {
 test('a weekly amount normalises by the average month, not by four weeks', () => {
   // 365.25 / 7 / 12 = 4.348214…, so $10/week is $43.48/month, not $40.
   assert.ok(Math.abs(monthlyEquivalent(10, 'weekly') - 43.48) < 0.01);
+});
+
+test('relative day labels read like a person would say them', () => {
+  assert.equal(relativeDayLabel(0), 'today');
+  assert.equal(relativeDayLabel(1), 'tomorrow');
+  assert.equal(relativeDayLabel(-1), 'yesterday');
+  assert.equal(relativeDayLabel(4), 'in 4 days');
+  assert.equal(relativeDayLabel(-4), '4 days ago');
 });

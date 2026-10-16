@@ -1,0 +1,105 @@
+import { Plus } from 'lucide-react';
+import { BottomNav } from '@/components/BottomNav';
+import { QuickAddIsland } from '@/components/QuickAddIsland';
+import { ResponsiveAmount } from '@/components/ResponsiveAmount';
+import { SubscriptionDialog } from '@/components/SubscriptionDialog';
+import { SubscriptionList } from '@/components/SubscriptionList';
+import { SubscriptionMark } from '@/components/SubscriptionMark';
+import { getAllCategories } from '@/app/actions/manage';
+import { getAccountOptions, getSubscriptionsView } from '@/app/actions/subscriptions';
+import { relativeDayLabel } from '@/lib/subscriptionSchedule';
+import { formatCurrency, formatDate } from '@/lib/utils';
+
+export default async function SubscriptionsPage() {
+  const [view, categories, accounts] = await Promise.all([
+    getSubscriptionsView(),
+    getAllCategories(),
+    getAccountOptions(),
+  ]);
+
+  return (
+    <div className="d-max-lg max-lg:max-w-md mx-auto px-6 min-h-screen bg-paper pb-28">
+      <div className="d-mobile-only">
+        <QuickAddIsland />
+      </div>
+
+      {view.subscriptions.length === 0 ? (
+        <div className="pt-10 pb-16">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-6">Subscriptions</p>
+          <p className="text-3xl font-bold tracking-tighter text-ink-faint leading-tight">
+            NOTHING<br />RECURRING.
+          </p>
+          {/* mt-6 as on /accounts' "Add one": without it the control sits flush
+              against the leading of the big type. */}
+          <div className="mt-6">
+            <SubscriptionDialog today={view.today} categories={categories} accounts={accounts}>
+              <button type="button" className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink transition-colors">
+                <Plus className="h-3 w-3" />
+                Add subscription
+              </button>
+            </SubscriptionDialog>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* ── What the standing commitment costs ── */}
+          <section className="pt-3 pb-5">
+            <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-3">Subscriptions</p>
+            <ResponsiveAmount value={view.monthlyTotal} baseSize={68} minSize={28} className="mb-3" split />
+            {/* "equivalent", not "spend": a yearly subscription contributes a
+                twelfth here every month and its whole amount in the month it
+                actually bills. Both are true; only one of them is spending. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <span className="text-ink-faint">Monthly equivalent</span>
+              <span className="text-line">·</span>
+              <span className="text-ink-faint">
+                Annual <span className="font-semibold text-ink tabular-nums">{formatCurrency(view.annualTotal)}</span>
+              </span>
+              <span className="text-line">·</span>
+              <span className="text-ink-faint">
+                <span className="font-semibold text-ink tabular-nums">{view.activeCount}</span> active
+              </span>
+            </div>
+          </section>
+
+          <div className="pb-5">
+            <SubscriptionDialog today={view.today} categories={categories} accounts={accounts}>
+              <button type="button" className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink transition-colors">
+                <Plus className="h-3 w-3" />
+                Add subscription
+              </button>
+            </SubscriptionDialog>
+          </div>
+
+          {/* ── What is coming ── */}
+          {view.upcoming.length > 0 && (
+            <section className="pb-6">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-1">Upcoming</p>
+              {view.upcoming.map((o) => (
+                <div
+                  key={`${o.subscriptionId}-${o.date}`}
+                  className="flex items-center gap-3 py-3 border-t border-line"
+                >
+                  <SubscriptionMark name={o.name} emoji={o.emoji} size={32} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-ink">{o.name}</span>
+                    <span className="block text-[11px] text-ink-faint">
+                      {formatDate(o.date, { month: 'short', day: 'numeric' })} · {relativeDayLabel(o.daysAway)}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm font-bold tabular-nums text-ink">
+                    {formatCurrency(o.amount)}
+                  </span>
+                </div>
+              ))}
+            </section>
+          )}
+
+          <SubscriptionList items={view.subscriptions} today={view.today} categories={categories} accounts={accounts} />
+        </>
+      )}
+
+      <BottomNav />
+    </div>
+  );
+}
