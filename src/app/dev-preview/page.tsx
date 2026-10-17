@@ -163,6 +163,15 @@ const HISTORY_OATLY: HistoryData = {
   ],
 };
 
+// Zoom, paused on October 1, with its first payment date then edited to December: after the stop, so
+// the series has no occurrence at all. Its one payment is stranded. The panel used to return nothing
+// for an empty series, which hid exactly this; now it shows the stranded list on its own.
+const HISTORY_ZOOM: HistoryData = {
+  expected: 20,
+  occurrences: [],
+  orphaned: [{ transactionId: 't-z1', period: '2026-06-10', amount: 20 }],
+};
+
 const CANDIDATES: LinkCandidate[] = [
   { id: 'c-1', date: '2026-08-17', merchant: 'Spotify', amount: 11.99, category: 'Entertainment' },
   { id: 'c-2', date: '2026-08-14', merchant: "Trader Joe's #412, 4 Union Square East, New York", amount: 123456.78, category: 'Groceries' },
@@ -182,7 +191,11 @@ function HistoryPanel({ data, picking = null, candidates = [] }: {
 }) {
   const busy = false;
   return (
-    <div className="pt-1 min-w-0">
+    // min-w-0: this panel sits in a grid, and a grid item's default
+    // min-width is auto, so it refuses to shrink below its content and
+    // pushes the dialog sideways instead — measured at 361.7px in a 327px
+    // column, and again at 1280 with a long merchant name.
+    <div className="min-w-0 pt-1">
       <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-1">Payments</p>
       {/* Newest first: the ones you are most likely to be confirming. */}
       {[...data.occurrences].reverse().map((o) => (
@@ -501,6 +514,7 @@ export default async function DevPreview({
           { name: 'iCloud+', data: HISTORY_ICLOUD, picking: null, candidates: [] },
           { name: 'Spotify', data: HISTORY_SPOTIFY, picking: '2026-08-15', candidates: CANDIDATES },
           { name: 'Oatly delivery', data: HISTORY_OATLY, picking: '2026-10-05', candidates: null },
+          { name: 'Zoom (paused, no occurrences)', data: HISTORY_ZOOM, picking: null, candidates: [] },
         ].map((f) => (
           <div
             key={f.name}
