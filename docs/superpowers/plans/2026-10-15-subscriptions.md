@@ -1729,6 +1729,19 @@ A working surface: what you pay, what is coming, and everything you have. No cal
 Append to `src/lib/subscriptionSchedule.test.ts`, and add `relativeDayLabel` to its import:
 
 ```ts
+test('a link confirms an occurrence; a date never does', () => {
+  const T = '2026-10-15';
+  // Linked, whatever the date says.
+  assert.equal(occurrenceState(true, '2026-09-05', T), 'confirmed');
+  assert.equal(occurrenceState(true, '2026-11-05', T), 'confirmed');
+  // Unlinked and past: unconfirmed, never "paid" and never "missed".
+  assert.equal(occurrenceState(false, '2026-09-05', T), 'unconfirmed');
+  // Unlinked and future: upcoming.
+  assert.equal(occurrenceState(false, '2026-11-05', T), 'upcoming');
+  // Today is upcoming, not unconfirmed: the charge may not have landed.
+  assert.equal(occurrenceState(false, T, T), 'upcoming');
+});
+
 test('relative day labels read like a person would say them', () => {
   assert.equal(relativeDayLabel(0), 'today');
   assert.equal(relativeDayLabel(1), 'tomorrow');
@@ -1748,6 +1761,29 @@ Expected: FAIL — no export named `relativeDayLabel`.
 Append to `src/lib/subscriptionSchedule.ts`:
 
 ```ts
+export type OccurrenceStateName = 'upcoming' | 'confirmed' | 'unconfirmed';
+
+/**
+ * What an occurrence's state is, given whether a payment is linked to it.
+ *
+ * The rule the whole feature rests on, in one place: a date is never
+ * evidence. Only a link confirms. Today counts as upcoming, because a charge
+ * dated today may simply not have landed yet, and calling it unconfirmed
+ * would be an accusation rather than a fact.
+ *
+ * Three surfaces render this — the calendar, the history panel and the
+ * preview harness — and the calendar's own comment already warns what
+ * happens when two views of one payment disagree.
+ */
+export function occurrenceState(
+  linked: boolean,
+  date: CalendarDate,
+  today: CalendarDate,
+): OccurrenceStateName {
+  if (linked) return 'confirmed';
+  return date >= today ? 'upcoming' : 'unconfirmed';
+}
+
 /** "in 4 days" / "yesterday". Pairs with the absolute date, never replaces it:
  *  "in 4 days" alone is useless a week later on a screenshot. */
 export function relativeDayLabel(days: number): string {
@@ -2994,9 +3030,7 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
         amount: s.amount,
         cycle: s.cycle,
         date,
-        // Today counts as upcoming: the charge may not have landed yet, and
-        // calling it unconfirmed would be an accusation, not a fact.
-        state: hit ? 'confirmed' : date >= today ? 'upcoming' : 'unconfirmed',
+        state: occurrenceState(Boolean(hit), date, today),
         paidAmount: hit ? hit.amount : null,
       });
       expected += s.amount;
@@ -3219,7 +3253,7 @@ export function SubscriptionCalendar({
                 </span>
                 {/* A price change shows up here: what was paid, and what was expected. */}
                 {o.paidAmount !== null && o.paidAmount !== o.amount && (
-                  <span className="block text-[10px] text-ink-faint tabular-nums">
+                  <span className="block text-[10px] text-ink-soft tabular-nums">
                     expected {formatCurrency(o.amount)}
                   </span>
                 )}
@@ -3404,7 +3438,9 @@ The harness is reached the same way as in Task 7 — `dev-preview` is already ex
 - Consumes: `getSubscriptionHistory`, `getLinkCandidates`, `linkTransaction`, `unlinkTransaction` from `@/app/actions/subscriptions`.
 - Produces:
   - `interface OccurrenceState { date; periodKey; state: 'upcoming' | 'confirmed' | 'unconfirmed'; paidAmount: number | null; transactionId: string | null }`
-  - `getSubscriptionHistory(id: string): Promise<{ today: CalendarDate; expected: number; occurrences: OccurrenceState[] } | null>`
+  - `interface OrphanedLink { transactionId: string; period: CalendarDate; amount: number }`
+  - `getSubscriptionHistory(id: string): Promise<{ today: CalendarDate; expected: number; occurrences: OccurrenceState[]; orphaned: OrphanedLink[] } | null>`
+  - `const LINK_CANDIDATE_LIMIT = 25`
   - `interface LinkCandidate { id: string; date: CalendarDate; merchant: string; amount: number; category: string }`
   - `getLinkCandidates(subscriptionId: string, date: string): Promise<LinkCandidate[]>`
   - `linkTransaction(transactionId: string, subscriptionId: string, period: string): Promise<{ success: boolean; error?: string }>`
@@ -3491,7 +3527,7 @@ export async function getSubscriptionHistory(id: string): Promise<{
     return {
       date,
       periodKey: key,
-      state: (hit ? 'confirmed' : date >= today ? 'upcoming' : 'unconfirmed') as OccurrenceState['state'],
+      state: occurrenceState(Boolean(hit), date, today),
       paidAmount: hit ? hit.amount : null,
       transactionId: hit ? hit.id : null,
     };
@@ -3499,6 +3535,9 @@ export async function getSubscriptionHistory(id: string): Promise<{
 
   return { today, expected: row.amount, occurrences, orphaned };
 }
+
+/** How many candidates the picker offers at once. */
+export const LINK_CANDIDATE_LIMIT = 25;
 
 export interface LinkCandidate {
   id: string;
@@ -3535,8 +3574,14 @@ export async function getLinkCandidates(
       isNull(transactions.subscriptionId),
     ),
     columns: { id: true, date: true, merchant: true, amount: true, category: true },
-    orderBy: [desc(transactions.date)],
-    limit: 25,
+    // Nearest the occurrence first, not newest first. The window is 21 days
+    // wide and the cap is 25, and after a statement import there can easily
+    // be more than 25 expenses in it — in which case newest-first silently
+    // drops the older half of the window, which is where a charge posted on
+    // or before the stated day lives. The one transaction most likely to be
+    // the right one was the one being cut.
+    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, desc(transactions.date)],
+    limit: LINK_CANDIDATE_LIMIT,
   });
 
   return rows.map((r) => ({ ...r, amount: toNum(r.amount, 'amount') }));
@@ -3569,9 +3614,19 @@ export async function linkTransaction(
     const res = await db
       .update(transactions)
       .set({ subscriptionId, subscriptionPeriod: periodDate, updatedAt: new Date() })
-      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, user.id)))
+      // isNull: the picker only ever offers unlinked expenses, so a request
+      // to link one that is already linked came from a stale view — a second
+      // device, or a tab left open. Moving it would silently revert whatever
+      // occurrence it currently confirms.
+      .where(and(
+        eq(transactions.id, transactionId),
+        eq(transactions.userId, user.id),
+        isNull(transactions.subscriptionId),
+      ))
       .returning({ id: transactions.id });
-    if (res.length === 0) return { success: false, error: 'Transaction not found' };
+    if (res.length === 0) {
+      return { success: false, error: 'That payment is no longer available to link' };
+    }
     revalidate();
     revalidatePath('/history');
     return { success: true };
@@ -3606,13 +3661,13 @@ Create `src/components/SubscriptionHistory.tsx`. It loads on mount rather than b
 ```tsx
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { unstable_rethrow, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   getLinkCandidates, getSubscriptionHistory, linkTransaction, unlinkTransaction,
-  type LinkCandidate, type OccurrenceState,
+  LINK_CANDIDATE_LIMIT, type LinkCandidate, type OccurrenceState,
 } from '@/app/actions/subscriptions';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
@@ -3623,10 +3678,14 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
   const [data, setData] = useState<Awaited<ReturnType<typeof getSubscriptionHistory>>>(null);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState<string | null>(null);
-  // null means "not fetched yet", which is not the same as "none found" —
-  // saying "no unlinked transactions" while still looking is a lie the user
-  // acts on.
-  const [candidates, setCandidates] = useState<LinkCandidate[] | null>(null);
+  // Three states, not two. "Still looking" and "the request failed" are each
+  // different from "none found", and saying "none found" for either is a lie
+  // the user acts on by giving up.
+  const [candidates, setCandidates] = useState<LinkCandidate[] | 'loading' | 'failed'>('loading');
+  // Taps can outrun responses: without this, opening one row and quickly
+  // opening another can show the first row's candidates under the second
+  // row's date, and linking one would attach it to the wrong occurrence.
+  const pickSeq = useRef(0);
   const [busy, setBusy] = useState(false);
 
   // No setLoading here: this runs after a link or unlink, and swapping the
@@ -3654,15 +3713,16 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
   }, [subscriptionId]);
 
   async function openPicker(o: OccurrenceState) {
+    const seq = ++pickSeq.current;
     setPicking(o.date);
-    setCandidates(null);
+    setCandidates('loading');
     try {
-      setCandidates(await getLinkCandidates(subscriptionId, o.date));
+      const rows = await getLinkCandidates(subscriptionId, o.date);
+      if (seq === pickSeq.current) setCandidates(rows);
     } catch (error) {
       unstable_rethrow(error);
-      // Out of the "Looking…" state either way: an empty list the user can
-      // close beats a spinner that never resolves.
-      setCandidates([]);
+      if (seq !== pickSeq.current) return;
+      setCandidates('failed');
       toast.error('Could not reach the server. Please try again.');
     }
   }
@@ -3677,8 +3737,9 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
       const res = await linkTransaction(transactionId, subscriptionId, period);
       if (!res.success) { toast.error(res.error || 'Could not link'); return; }
       setPicking(null);
-      await reload();
-      router.refresh();
+      // The write succeeded. A failing refresh after it is a stale screen,
+      // not a failed link, and must not be reported as one.
+      try { await reload(); router.refresh(); } catch { /* stale, not failed */ }
     } catch (error) {
       unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
@@ -3692,8 +3753,7 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
     try {
       const res = await unlinkTransaction(transactionId);
       if (!res.success) { toast.error(res.error || 'Could not unlink'); return; }
-      await reload();
-      router.refresh();
+      try { await reload(); router.refresh(); } catch { /* stale, not failed */ }
     } catch (error) {
       unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
@@ -3739,7 +3799,7 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
                 {formatCurrency(o.paidAmount ?? data.expected)}
               </span>
               {o.paidAmount !== null && o.paidAmount !== data.expected && (
-                <span className="block text-[10px] tabular-nums text-ink-faint">
+                <span className="block text-[10px] tabular-nums text-ink-soft">
                   expected {formatCurrency(data.expected)}
                 </span>
               )}
@@ -3761,9 +3821,13 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
               a focus-trap argument nobody wins. */}
           {picking === o.date && (
             <div className="pt-2 pl-1">
-              {candidates === null ? (
+              {candidates === 'loading' ? (
                 <p className="flex items-center gap-2 text-[11px] text-ink-faint">
                   <Loader2 className="h-3 w-3 animate-spin" /> Looking…
+                </p>
+              ) : candidates === 'failed' ? (
+                <p className="text-[11px] text-ink-soft">
+                  Could not load. Tap Link again to retry.
                 </p>
               ) : candidates.length === 0 ? (
                 <p className="text-[11px] text-ink-faint">
@@ -3787,6 +3851,12 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
                     </span>
                   </button>
                 ))
+              )}
+              {Array.isArray(candidates) && candidates.length === LINK_CANDIDATE_LIMIT && (
+                <p className="pt-1 text-[10px] text-ink-soft">
+                  The {LINK_CANDIDATE_LIMIT} nearest this date. Unlink something else if
+                  the charge you want is missing.
+                </p>
               )}
               <button type="button" onClick={() => setPicking(null)}
                       className="pt-1 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink">
