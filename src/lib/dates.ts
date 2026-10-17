@@ -9,12 +9,14 @@
  * So a date stays a "YYYY-MM-DD" string from the database to the screen and
  * back. No Date object ever touches it, so nothing can shift it.
  *
- * Zero-padding is what makes `<` and `>` on these strings chronological, and
- * that holds for years 1000 to 9999 only. `toCalendarDate` accepts any four
- * digits, but `makeCalendarDate` does not pad the year, so below 1000 it
- * builds "999-05-01", which sorts after "2026-01-01". Above 9999 the order
- * silently inverts: "10000-01-01" sorts before "9999-12-31". Several
- * comparisons across the app rest on this.
+ * Zero-padding is what makes `<` and `>` on these strings chronological. Both
+ * ways into this module keep the year four digits wide: `toCalendarDate`
+ * accepts exactly four, and `makeCalendarDate` pads the year as well as the
+ * month and day. The one edge left is year 10000, where "10000-01-01" sorts
+ * before "9999-12-31". That is why the loops in subscriptionSchedule are
+ * bounded by integers rather than by comparisons: a date past the edge can be
+ * wrong, but it can no longer keep a loop running. Several comparisons across
+ * the app rest on this.
  *
  * A timezone is needed for exactly one question — what is *today* — and that is
  * the user's configured zone, never the server's.
@@ -117,7 +119,11 @@ export function monthKeyOf(date: CalendarDate): string {
 /** Build a calendar date from its parts. Month is 1-based. Zero-padded, so
  *  string comparison on the result is chronological comparison. */
 export function makeCalendarDate(year: number, month: number, day: number): CalendarDate {
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  // The year is padded too, not just the month and day. Without it a year
+  // under 1000 builds "999-05-01", which sorts *after* "2026-01-01" and
+  // quietly breaks every comparison in this module — and toCalendarDate
+  // accepts any four digits, so a date field holding 0202 reaches here.
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 /**

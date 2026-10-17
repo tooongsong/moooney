@@ -202,3 +202,11 @@ test('makeCalendarDate zero-pads, so string order is date order', () => {
   assert.equal(makeCalendarDate(2026, 1, 5), '2026-01-05');
   assert.ok(makeCalendarDate(2026, 9, 30) < makeCalendarDate(2026, 10, 1));
 });
+
+test('the year is padded too, so a year under 1000 still sorts where it belongs', () => {
+  assert.equal(makeCalendarDate(999, 5, 1), '0999-05-01');
+  assert.equal(makeCalendarDate(1, 1, 1), '0001-01-01');
+  // Unpadded this is "999-05-01", which sorts after "2026-01-01" because "9"
+  // follows "2" — the same inversion that year 10000 causes at the other end.
+  assert.ok(makeCalendarDate(999, 5, 1) < makeCalendarDate(2026, 1, 1));
+});
