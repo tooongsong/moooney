@@ -1761,6 +1761,13 @@ Expected: FAIL — no export named `relativeDayLabel`.
 Append to `src/lib/subscriptionSchedule.ts`:
 
 ```ts
+/** How many candidates the picker offers at once.
+ *
+ *  Here rather than beside the query that uses it: a "use server" file may
+ *  export only async functions, and a plain const there fails the build
+ *  while passing tsc and the tests. */
+export const LINK_CANDIDATE_LIMIT = 25;
+
 export type OccurrenceStateName = 'upcoming' | 'confirmed' | 'unconfirmed';
 
 /**
@@ -3440,7 +3447,7 @@ The harness is reached the same way as in Task 7 — `dev-preview` is already ex
   - `interface OccurrenceState { date; periodKey; state: 'upcoming' | 'confirmed' | 'unconfirmed'; paidAmount: number | null; transactionId: string | null }`
   - `interface OrphanedLink { transactionId: string; period: CalendarDate; amount: number }`
   - `getSubscriptionHistory(id: string): Promise<{ today: CalendarDate; expected: number; occurrences: OccurrenceState[]; orphaned: OrphanedLink[] } | null>`
-  - `const LINK_CANDIDATE_LIMIT = 25`
+  - `const LINK_CANDIDATE_LIMIT = 25`, exported from `@/lib/subscriptionSchedule` — a `'use server'` file may export only async functions
   - `interface LinkCandidate { id: string; date: CalendarDate; merchant: string; amount: number; category: string }`
   - `getLinkCandidates(subscriptionId: string, date: string): Promise<LinkCandidate[]>`
   - `linkTransaction(transactionId: string, subscriptionId: string, period: string): Promise<{ success: boolean; error?: string }>`
@@ -3536,9 +3543,6 @@ export async function getSubscriptionHistory(id: string): Promise<{
   return { today, expected: row.amount, occurrences, orphaned };
 }
 
-/** How many candidates the picker offers at once. */
-export const LINK_CANDIDATE_LIMIT = 25;
-
 export interface LinkCandidate {
   id: string;
   date: CalendarDate;
@@ -3580,7 +3584,9 @@ export async function getLinkCandidates(
     // drops the older half of the window, which is where a charge posted on
     // or before the stated day lives. The one transaction most likely to be
     // the right one was the one being cut.
-    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, desc(transactions.date)],
+    // id last: same-day rows tie on both keys above, and without a final one
+    // which of them survives the cap is whatever order Postgres returns.
+    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, desc(transactions.date), asc(transactions.id)],
     limit: LINK_CANDIDATE_LIMIT,
   });
 
@@ -3854,8 +3860,7 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
               )}
               {Array.isArray(candidates) && candidates.length === LINK_CANDIDATE_LIMIT && (
                 <p className="pt-1 text-[10px] text-ink-soft">
-                  The {LINK_CANDIDATE_LIMIT} nearest this date. Unlink something else if
-                  the charge you want is missing.
+                  Showing the {LINK_CANDIDATE_LIMIT} payments nearest this date.
                 </p>
               )}
               <button type="button" onClick={() => setPicking(null)}
