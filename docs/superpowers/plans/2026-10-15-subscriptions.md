@@ -1053,7 +1053,7 @@ Every read names its columns. This project has already spent 6.5 GB of egress on
   - `getRecurringMonthlyTotal(): Promise<{ monthly: number; activeCount: number }>`
   - `getAccountOptions(): Promise<{ id: string; name: string; archived: boolean }[]>` — active accounts, plus any archived one a subscription still pays from
   - `saveSubscription(input: SaveSubscriptionInput): Promise<{ success: true; id: string } | { success: false; error: string }>`
-  - `setSubscriptionStatus(id: string, status: SubscriptionStatus): Promise<{ success: boolean; error?: string }>`
+  - `setSubscriptionStatus(id: string, status: SubscriptionStatus, stoppedOn?: string): Promise<{ success: boolean; error?: string }>` — a supplied date is when billing really stopped and wins outright; with none, the first stop is kept
   - `deleteSubscription(id: string): Promise<{ success: boolean; error?: string }>`
 
 - [ ] **Step 1: Write the actions file**
@@ -1367,9 +1367,27 @@ export async function saveSubscription(
 export async function setSubscriptionStatus(
   id: string,
   status: SubscriptionStatus,
+  stoppedOn?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getUser();
   if (!SUBSCRIPTION_STATUSES.includes(status)) return { success: false, error: 'Unknown status' };
+
+  // A date the caller supplies is the user saying when billing actually
+  // stopped, and it wins outright below. Without one, ending a subscription
+  // that was cancelled in March stamps today, and every month since is an
+  // Unconfirmed occurrence that never happened, each one inflating the
+  // calendar's Expected.
+  //
+  // Validated, because it arrives from the client. Active ignores it entirely,
+  // so a date the form is still holding cannot fail a reactivation.
+  let stopped: CalendarDate | undefined;
+  if (status !== 'active' && stoppedOn !== undefined) {
+    try {
+      stopped = toCalendarDate(stoppedOn);
+    } catch {
+      return { success: false, error: 'Enter a valid date' };
+    }
+  }
 
   const today = todayIn(safeTimeZone(user.user_metadata?.timezone as string | undefined));
   try {
@@ -1380,15 +1398,17 @@ export async function setSubscriptionStatus(
       // every month it stays paused. Reactivating clears it, or the series
       // would go on stopping at the old date.
       //
-      // coalesce, not a plain assignment: the *first* stop is the one that
-      // counts. Pause in October and end in December, and re-stamping would
-      // move the stop to December and bring November's charge back as an
-      // unconfirmed past occurrence — exactly what the stop date is for.
+      // With no date supplied, coalesce rather than a plain assignment: the
+      // *first* stop is the one that counts. Pause in October and end in
+      // December, and re-stamping would move the stop to December and bring
+      // November's charge back as an unconfirmed past occurrence — exactly what
+      // the stop date is for. A date that was supplied beats that, because it
+      // is the user saying when billing really stopped.
       .set({
         status,
         stoppedOn: status === 'active'
           ? null
-          : sql`coalesce(${subscriptions.stoppedOn}, ${today}::date)`,
+          : stopped ?? sql`coalesce(${subscriptions.stoppedOn}, ${today}::date)`,
         updatedAt: new Date(),
       })
       .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, user.id)))
@@ -2305,10 +2325,27 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   const [accountId, setAccountId] = useState(subscription?.paymentMethodId ?? NONE);
   const [website, setWebsite] = useState(subscription?.website ?? '');
   const [notes, setNotes] = useState(subscription?.notes ?? '');
+  // The day billing stopped, which Paused and Ended record. Seeded with the
+  // stored stop date, or today for a subscription that has not stopped.
+  const [stoppedOn, setStoppedOn] = useState(subscription?.stoppedOn ?? today);
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
-    if (!next) {
+    if (next) {
+      // The content unmounts on close but this state lives out here, so without
+      // a re-seed a reopened form shows the last cancelled draft — or, after an
+      // add, the subscription just added, one click from being saved twice.
+      setName(subscription?.name ?? '');
+      setAmount(subscription ? subscription.amount.toFixed(2) : '');
+      setCycle(subscription?.cycle ?? 'monthly');
+      setAnchorDate(subscription?.anchorDate ?? today);
+      setEmoji(subscription?.emoji ?? '');
+      setCategory(subscription?.category ?? NONE);
+      setAccountId(subscription?.paymentMethodId ?? NONE);
+      setWebsite(subscription?.website ?? '');
+      setNotes(subscription?.notes ?? '');
+      setStoppedOn(subscription?.stoppedOn ?? today);
+    } else {
       setArmedDeleteAt(null);
       setMore(false);
     }
@@ -2366,10 +2403,16 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   }
 
   async function handleStatus(next: SubscriptionStatus) {
-    if (!subscription || next === subscription.status) return;
+    if (!subscription) return;
+    // Choosing the status it already has does nothing, unless it carries a
+    // different stop date: that is how one entered wrongly gets corrected.
+    // Active has no date to carry.
+    const unchanged = next === subscription.status
+      && (next === 'active' || stoppedOn === subscription.stoppedOn);
+    if (unchanged) return;
     setSaving(true);
     try {
-      const res = await setSubscriptionStatus(subscription.id, next);
+      const res = await setSubscriptionStatus(subscription.id, next, stoppedOn);
       if (!res.success) {
         toast.error(res.error || 'Could not change status');
         return;
@@ -2529,7 +2572,15 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
         </div>
 
         {subscription && (
-          <div className="flex items-center gap-3 pt-1">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            {/* Its own line, so the buttons and Delete wrap beneath it rather
+                than overflowing a narrow sheet. Paused and Ended record this as
+                the day billing stopped; Active ignores it. */}
+            <div className="grid w-full gap-1.5">
+              <Label htmlFor="sub-stopped">Billing stopped on</Label>
+              <Input id="sub-stopped" type="date" value={stoppedOn} disabled={saving}
+                     onChange={(e) => setStoppedOn(e.target.value)} />
+            </div>
             {STATUS_OPTIONS.map((s) => (
               <button
                 key={s.value}
@@ -2681,6 +2732,7 @@ At `/dev-preview`, with the dev server running:
 3. Check the date hint. On an existing subscription it must say the anchor change re-dates the series — that is the single most surprising behaviour in this feature and the user asked for it specifically.
 4. At 375 wide the dialog is a bottom sheet flush to the bottom edge; at 1280 it is centred. Long content scrolls inside it (`max-h-[85vh] overflow-y-auto`) rather than pushing the Save button off screen.
 5. Dark mode: the inputs and the sheet are distinguishable from the page behind them.
+6. The status row opens with **Billing stopped on**, a date on a line of its own, holding the stored stop date or today. At 375 wide the buttons and Delete wrap beneath it and nothing runs sideways.
 
 Saving from the harness will fail — there is no session, and no session means no write. That is now the expected and the intended outcome.
 
@@ -2698,7 +2750,7 @@ Nothing in this plan writes to the database, so the form cannot be driven end to
 6. An amount of 10,000,000,000 or more → `Amount is too large`, before the write, because `numeric(12,2)` cannot hold it.
 7. **After a database call:** an account id the caller does not own → `Account not found`. Editing a subscription that is not theirs → `Subscription not found`. Both are reachable only with a forged id, so there is nothing to click in the harness — read them instead and confirm each lookup filters on `user.id`.
 
-**State transitions, by reading.** Confirm in `setSubscriptionStatus` that `active` nulls `stoppedOn`, that the other two use `coalesce(stopped_on, today)` so the first stop wins, and that the `where` filters on `userId` as well as `id`.
+**State transitions, by reading.** Confirm in `setSubscriptionStatus` that `active` nulls `stoppedOn` and ignores any date it is given; that the other two take a supplied date as it is once `toCalendarDate` has accepted it, and answer `Enter a valid date` without writing when it does not; that with none supplied they use `coalesce(stopped_on, today)` so the first stop wins; and that the `where` filters on `userId` as well as `id`.
 
 **Double submission, in the harness.** Not with a signed-out Save — that now redirects to `/login` with no toast at all, because `unstable_rethrow` lets the redirect through. Use a forced transport failure instead (DevTools offline, or rejecting the request): the button must disable for the duration and re-enable when the "Could not reach the server" toast appears, so a second click cannot fire a second save.
 
@@ -2709,6 +2761,7 @@ Nothing in this plan writes to the database, so the form cannot be driven end to
 - Edit the amount to `13.99`: the hero monthly equivalent moves by exactly $2.00.
 - Pause it: it leaves the active count, the hero drops, the row reads PAUSED with no next date, and it shows the date it was paused.
 - Activate it: everything comes back and the pause date clears.
+- End one with **Billing stopped on** set to a day two months back: the row reads ENDED with that date, and the calendar shows nothing for it after that day. This is what the field is for — a subscription that was cancelled long before it was entered.
 - End it, then delete it: one click for "Really delete?", a second to delete.
 
 - [ ] **Step 8: Lint and build**

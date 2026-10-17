@@ -64,6 +64,9 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   const [accountId, setAccountId] = useState(subscription?.paymentMethodId ?? NONE);
   const [website, setWebsite] = useState(subscription?.website ?? '');
   const [notes, setNotes] = useState(subscription?.notes ?? '');
+  // The day billing stopped, which Paused and Ended record. Seeded with the
+  // stored stop date, or today for a subscription that has not stopped.
+  const [stoppedOn, setStoppedOn] = useState(subscription?.stoppedOn ?? today);
 
   function handleOpenChange(next: boolean) {
     setOpen(next);
@@ -80,6 +83,7 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
       setAccountId(subscription?.paymentMethodId ?? NONE);
       setWebsite(subscription?.website ?? '');
       setNotes(subscription?.notes ?? '');
+      setStoppedOn(subscription?.stoppedOn ?? today);
     } else {
       setArmedDeleteAt(null);
       setMore(false);
@@ -138,10 +142,16 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   }
 
   async function handleStatus(next: SubscriptionStatus) {
-    if (!subscription || next === subscription.status) return;
+    if (!subscription) return;
+    // Choosing the status it already has does nothing, unless it carries a
+    // different stop date: that is how one entered wrongly gets corrected.
+    // Active has no date to carry.
+    const unchanged = next === subscription.status
+      && (next === 'active' || stoppedOn === subscription.stoppedOn);
+    if (unchanged) return;
     setSaving(true);
     try {
-      const res = await setSubscriptionStatus(subscription.id, next);
+      const res = await setSubscriptionStatus(subscription.id, next, stoppedOn);
       if (!res.success) {
         toast.error(res.error || 'Could not change status');
         return;
@@ -305,7 +315,15 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
         {subscription && <SubscriptionHistory subscriptionId={subscription.id} />}
 
         {subscription && (
-          <div className="flex items-center gap-3 pt-1">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            {/* Its own line, so the buttons and Delete wrap beneath it rather
+                than overflowing a narrow sheet. Paused and Ended record this as
+                the day billing stopped; Active ignores it. */}
+            <div className="grid w-full gap-1.5">
+              <Label htmlFor="sub-stopped">Billing stopped on</Label>
+              <Input id="sub-stopped" type="date" value={stoppedOn} disabled={saving}
+                     onChange={(e) => setStoppedOn(e.target.value)} />
+            </div>
             {STATUS_OPTIONS.map((s) => (
               <button
                 key={s.value}

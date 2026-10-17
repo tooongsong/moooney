@@ -308,9 +308,27 @@ export async function saveSubscription(
 export async function setSubscriptionStatus(
   id: string,
   status: SubscriptionStatus,
+  stoppedOn?: string,
 ): Promise<{ success: boolean; error?: string }> {
   const user = await getUser();
   if (!SUBSCRIPTION_STATUSES.includes(status)) return { success: false, error: 'Unknown status' };
+
+  // A date the caller supplies is the user saying when billing actually
+  // stopped, and it wins outright below. Without one, ending a subscription
+  // that was cancelled in March stamps today, and every month since is an
+  // Unconfirmed occurrence that never happened, each one inflating the
+  // calendar's Expected.
+  //
+  // Validated, because it arrives from the client. Active ignores it entirely,
+  // so a date the form is still holding cannot fail a reactivation.
+  let stopped: CalendarDate | undefined;
+  if (status !== 'active' && stoppedOn !== undefined) {
+    try {
+      stopped = toCalendarDate(stoppedOn);
+    } catch {
+      return { success: false, error: 'Enter a valid date' };
+    }
+  }
 
   const today = todayIn(safeTimeZone(user.user_metadata?.timezone as string | undefined));
   try {
@@ -321,15 +339,17 @@ export async function setSubscriptionStatus(
       // every month it stays paused. Reactivating clears it, or the series
       // would go on stopping at the old date.
       //
-      // coalesce, not a plain assignment: the *first* stop is the one that
-      // counts. Pause in October and end in December, and re-stamping would
-      // move the stop to December and bring November's charge back as an
-      // unconfirmed past occurrence — exactly what the stop date is for.
+      // With no date supplied, coalesce rather than a plain assignment: the
+      // *first* stop is the one that counts. Pause in October and end in
+      // December, and re-stamping would move the stop to December and bring
+      // November's charge back as an unconfirmed past occurrence — exactly what
+      // the stop date is for. A date that was supplied beats that, because it
+      // is the user saying when billing really stopped.
       .set({
         status,
         stoppedOn: status === 'active'
           ? null
-          : sql`coalesce(${subscriptions.stoppedOn}, ${today}::date)`,
+          : stopped ?? sql`coalesce(${subscriptions.stoppedOn}, ${today}::date)`,
         updatedAt: new Date(),
       })
       .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, user.id)))
