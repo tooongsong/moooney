@@ -3416,6 +3416,13 @@ The harness is reached the same way as in Task 7 — `dev-preview` is already ex
 Append to `src/app/actions/subscriptions.ts`. Add `addDays` to the `@/lib/dates` import, and `desc` to the drizzle one — Task 7 left it out because nothing there used it, and `getLinkCandidates` below is the first caller.
 
 ```ts
+/** A link whose period answers to no occurrence in the series any more. */
+export interface OrphanedLink {
+  transactionId: string;
+  period: CalendarDate;
+  amount: number;
+}
+
 export interface OccurrenceState {
   date: CalendarDate;
   periodKey: string;
@@ -3425,7 +3432,7 @@ export interface OccurrenceState {
 }
 
 /**
- * The last twelve occurrences plus the next one, each with its state.
+ * The last twelve occurrences, each with its state, plus any stranded links.
  *
  * Computed over the whole series rather than a rolling window: for a monthly
  * subscription five years old that is sixty string comparisons, which costs
@@ -3436,6 +3443,7 @@ export async function getSubscriptionHistory(id: string): Promise<{
   today: CalendarDate;
   expected: number;
   occurrences: OccurrenceState[];
+  orphaned: OrphanedLink[];
 } | null> {
   const user = await getUser();
   const today = todayIn(safeTimeZone(user.user_metadata?.timezone as string | undefined));
@@ -3463,6 +3471,20 @@ export async function getSubscriptionHistory(id: string): Promise<{
              { id: l.id, amount: toNum(l.amount, 'amount') });
   }
 
+  // Moving the anchor across a month, or changing the cycle, can leave a link
+  // pointing at a period the series no longer has. The spec calls that the
+  // known ceiling and says it is "fixed by re-linking" — which is only true
+  // if the stranded link is visible somewhere, because a linked transaction
+  // is excluded from every candidate list. So surface them.
+  const liveKeys = new Set(all.map((d) => periodKeyOf(row.cycle, d)));
+  const orphaned: OrphanedLink[] = links
+    .filter((l) => l.subscriptionPeriod && !liveKeys.has(periodKeyOf(row.cycle, l.subscriptionPeriod)))
+    .map((l) => ({
+      transactionId: l.id,
+      period: l.subscriptionPeriod as CalendarDate,
+      amount: toNum(l.amount, 'amount'),
+    }));
+
   const occurrences = all.slice(-12).map((date) => {
     const key = periodKeyOf(row.cycle, date);
     const hit = paid.get(key);
@@ -3475,7 +3497,7 @@ export async function getSubscriptionHistory(id: string): Promise<{
     };
   });
 
-  return { today, expected: row.amount, occurrences };
+  return { today, expected: row.amount, occurrences, orphaned };
 }
 
 export interface LinkCandidate {
@@ -3504,6 +3526,10 @@ export async function getLinkCandidates(
   const rows = await db.query.transactions.findMany({
     where: and(
       eq(transactions.userId, user.id),
+      // Expenses only. An income row, a refund or a balance adjustment is not
+      // a subscription payment, and offering one invites a link that would
+      // make the occurrence read Confirmed against money that came in.
+      eq(transactions.type, 'expense'),
       gte(transactions.date, addDays(anchor, -10)),
       lte(transactions.date, addDays(anchor, 10)),
       isNull(transactions.subscriptionId),
@@ -3581,7 +3607,7 @@ Create `src/components/SubscriptionHistory.tsx`. It loads on mount rather than b
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { unstable_rethrow, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -3597,7 +3623,10 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
   const [data, setData] = useState<Awaited<ReturnType<typeof getSubscriptionHistory>>>(null);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState<string | null>(null);
-  const [candidates, setCandidates] = useState<LinkCandidate[]>([]);
+  // null means "not fetched yet", which is not the same as "none found" —
+  // saying "no unlinked transactions" while still looking is a lie the user
+  // acts on.
+  const [candidates, setCandidates] = useState<LinkCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   // No setLoading here: this runs after a link or unlink, and swapping the
@@ -3619,27 +3648,43 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
 
   async function openPicker(o: OccurrenceState) {
     setPicking(o.date);
-    setCandidates([]);
+    setCandidates(null);
     setCandidates(await getLinkCandidates(subscriptionId, o.date));
   }
 
+  // try/catch/finally for the same reason SubscriptionDialog has it: the
+  // actions catch database errors, but nothing catches the request itself
+  // failing. Without the finally, `busy` stays true and every control in this
+  // panel is disabled with no way back.
   async function link(transactionId: string, period: string) {
     setBusy(true);
-    const res = await linkTransaction(transactionId, subscriptionId, period);
-    setBusy(false);
-    if (!res.success) { toast.error(res.error || 'Could not link'); return; }
-    setPicking(null);
-    await reload();
-    router.refresh();
+    try {
+      const res = await linkTransaction(transactionId, subscriptionId, period);
+      if (!res.success) { toast.error(res.error || 'Could not link'); return; }
+      setPicking(null);
+      await reload();
+      router.refresh();
+    } catch (error) {
+      unstable_rethrow(error);
+      toast.error('Could not reach the server. Please try again.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function unlink(transactionId: string) {
     setBusy(true);
-    const res = await unlinkTransaction(transactionId);
-    setBusy(false);
-    if (!res.success) { toast.error(res.error || 'Could not unlink'); return; }
-    await reload();
-    router.refresh();
+    try {
+      const res = await unlinkTransaction(transactionId);
+      if (!res.success) { toast.error(res.error || 'Could not unlink'); return; }
+      await reload();
+      router.refresh();
+    } catch (error) {
+      unstable_rethrow(error);
+      toast.error('Could not reach the server. Please try again.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (loading) {
@@ -3662,8 +3707,9 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
               <span className="block text-sm text-ink">
                 {formatDate(o.date, { month: 'short', day: 'numeric', year: 'numeric' })}
               </span>
-              {/* A word, not only a colour. */}
-              <span className="block text-[11px] text-ink-faint">{STATE_LABEL[o.state]}</span>
+              {/* A word, not only a colour — and not in the faintest ink
+                  available, since the state is the thing being read. */}
+              <span className="block text-[11px] text-ink-soft">{STATE_LABEL[o.state]}</span>
             </span>
             <span className="shrink-0 text-right">
               <span className="block text-sm font-semibold tabular-nums text-ink">
@@ -3692,9 +3738,13 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
               a focus-trap argument nobody wins. */}
           {picking === o.date && (
             <div className="pt-2 pl-1">
-              {candidates.length === 0 ? (
+              {candidates === null ? (
+                <p className="flex items-center gap-2 text-[11px] text-ink-faint">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Looking…
+                </p>
+              ) : candidates.length === 0 ? (
                 <p className="text-[11px] text-ink-faint">
-                  No unlinked transactions within ten days of this date.
+                  No unlinked expense within ten days of this date.
                 </p>
               ) : (
                 candidates.map((c) => (
@@ -3723,6 +3773,37 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
           )}
         </div>
       ))}
+
+      {/* Links the series no longer has a period for — after the billing day
+          moved across a month, or the cycle changed. The spec calls this the
+          known ceiling and says it is fixed by re-linking; that is only true
+          if the stranded link can be found, because a linked transaction is
+          excluded from every candidate list. Unlink here, then link it where
+          it belongs. */}
+      {data.orphaned.length > 0 && (
+        <div className="pt-3">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-1">
+            No longer matches a payment date
+          </p>
+          {data.orphaned.map((o) => (
+            <div key={o.transactionId} className="flex items-center gap-3 border-t border-line py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm text-ink">
+                  {formatDate(o.period, { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+                <span className="block text-[11px] text-ink-soft">Linked to a date this subscription no longer bills on</span>
+              </span>
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">
+                {formatCurrency(o.amount)}
+              </span>
+              <button type="button" disabled={busy} onClick={() => unlink(o.transactionId)}
+                      className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink disabled:opacity-40">
+                Unlink
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
