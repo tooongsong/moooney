@@ -2931,10 +2931,11 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   // produce "2026-13-01", which is not a date.
   let year = Number(monthKey?.slice(0, 4));
   let month = Number(monthKey?.slice(5, 7));
-  // Defence in depth, both halves. makeCalendarDate does not pad the year,
-  // so "0001-05" survives the shape check and produces "1-05-01", which no
-  // column accepts; and the upper bound keeps every date this builds inside
-  // the four-digit range where comparing them as strings is sound.
+  // Defence in depth, both halves, and neither is about string order any
+  // more — makeCalendarDate pads the year. The lower bound is about Date.UTC,
+  // which reads years 0 to 99 as 1900 to 1999, so "0050-01" would quietly
+  // become 1950. The upper bound keeps every date this builds inside four
+  // digits, past which the string ordering inverts.
   if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12)
       || !(year >= 1000 && year < 9999)) {
     year = Number(today.slice(0, 4));
