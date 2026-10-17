@@ -3638,18 +3638,27 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
 
   useEffect(() => {
     let live = true;
-    getSubscriptionHistory(subscriptionId).then((d) => {
-      if (!live) return;
-      setData(d);
-      setLoading(false);
-    });
+    getSubscriptionHistory(subscriptionId)
+      .then((d) => { if (live) setData(d); })
+      // A failed first load would otherwise leave the spinner up for good,
+      // with an uncaught rejection behind it and nothing to act on.
+      .catch(() => { if (live) toast.error('Could not load payments.'); })
+      .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [subscriptionId]);
 
   async function openPicker(o: OccurrenceState) {
     setPicking(o.date);
     setCandidates(null);
-    setCandidates(await getLinkCandidates(subscriptionId, o.date));
+    try {
+      setCandidates(await getLinkCandidates(subscriptionId, o.date));
+    } catch (error) {
+      unstable_rethrow(error);
+      // Out of the "Looking…" state either way: an empty list the user can
+      // close beats a spinner that never resolves.
+      setCandidates([]);
+      toast.error('Could not reach the server. Please try again.');
+    }
   }
 
   // try/catch/finally for the same reason SubscriptionDialog has it: the
@@ -3694,10 +3703,18 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
       </p>
     );
   }
-  if (!data || data.occurrences.length === 0) return null;
+  // Not `occurrences.length === 0` alone: a series can have no live
+  // occurrences and still hold stranded links, and hiding them here would
+  // undo the only way to reach them.
+  if (!data) return null;
+  if (data.occurrences.length === 0 && data.orphaned.length === 0) return null;
 
   return (
-    <div className="pt-1">
+    // min-w-0: this panel sits in a grid, and a grid item's default
+    // min-width is auto, so it refuses to shrink below its content and
+    // pushes the dialog sideways instead — measured at 361.7px in a 327px
+    // column, and again at 1280 with a long merchant name.
+    <div className="min-w-0 pt-1">
       <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-1">Payments</p>
       {/* Newest first: the ones you are most likely to be confirming. */}
       {[...data.occurrences].reverse().map((o) => (
