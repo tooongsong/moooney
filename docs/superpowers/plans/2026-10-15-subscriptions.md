@@ -589,9 +589,9 @@ export function occurrencesBetween(
     // leans on this module's one load-bearing assumption: that zero-padded
     // dates compare chronologically as strings. That assumption dies at year
     // 10000, where "10000-01-07" <= "9999-12-31" is true because "1" sorts
-    // before "9" — so the loop ran on to year 99990. A weekly subscription
-    // anchored in 9999 built 4.7 million dates and 1.9GB before anyone saw a
-    // page: 1.65 seconds on every load, for five real occurrences.
+    // before "9". A loop ending on that compare runs to year 99990: anchored
+    // in 9999 it built 4.7 million dates and 1.9GB, 1.65 seconds on every
+    // page load, for five real occurrences.
     //
     // Integer bounds cannot run away regardless of what the strings do.
     const kStart = Math.max(0, Math.ceil(daysBetween(sub.anchorDate, lo) / 7));
@@ -2881,7 +2881,7 @@ Run that with `run_in_background`, wait for it to report ready, then open the pa
 
 - [ ] **Step 1: Add the month query**
 
-Append to `src/app/actions/subscriptions.ts`, and extend its drizzle import to `import { and, asc, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';` and its schema import to include `transactions`, and its dates import to include `monthRange`:
+Append to `src/app/actions/subscriptions.ts`, and extend its schema import to include `transactions`, and its dates import to include `monthRange` and `yearRange`:
 
 ```ts
 export interface DayOccurrence {
@@ -2919,9 +2919,10 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   // produce "2026-13-01", which is not a date.
   let year = Number(monthKey?.slice(0, 4));
   let month = Number(monthKey?.slice(5, 7));
-  // The year bound is not pedantry: makeCalendarDate does not pad the year,
-  // so "0001-05" survives the shape check and produces "1-05-01", which is
-  // not a date any column will accept.
+  // Defence in depth, both halves. makeCalendarDate does not pad the year,
+  // so "0001-05" survives the shape check and produces "1-05-01", which no
+  // column accepts; and the upper bound keeps every date this builds inside
+  // the four-digit range where comparing them as strings is sound.
   if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12)
       || !(year >= 1000 && year < 9999)) {
     year = Number(today.slice(0, 4));
@@ -2932,13 +2933,23 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
 
   const rows = await loadRows(user.id);
 
-  // Links whose period falls in this month. Four small columns, bounded by the
-  // month — not every link ever made.
+  // Links whose period could match something in this month. Four small
+  // columns, bounded — not every link ever made.
+  //
+  // A yearly subscription matches by year, so its link can carry any date in
+  // the year and still belong to this month's occurrence: edit the renewal
+  // from March to May after March was paid, and a month-bounded query would
+  // never see the March link, so May would read Unconfirmed here while Task
+  // 8's history read Confirmed. Two views of one payment disagreeing is worse
+  // than a slightly wider query.
+  const hasYearly = rows.some((s) => s.cycle === 'yearly');
+  const [linkFrom, linkTo] = hasYearly ? yearRange(year) : [first, last];
+
   const links = await db.query.transactions.findMany({
     where: and(
       eq(transactions.userId, user.id),
-      gte(transactions.subscriptionPeriod, first),
-      lte(transactions.subscriptionPeriod, last),
+      gte(transactions.subscriptionPeriod, linkFrom),
+      lte(transactions.subscriptionPeriod, linkTo),
     ),
     columns: { id: true, amount: true, subscriptionId: true, subscriptionPeriod: true },
   });
@@ -2972,7 +2983,10 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
         paidAmount: hit ? hit.amount : null,
       });
       expected += s.amount;
-      if (date >= today) remaining += s.amount;
+      // Not merely still to come — still to *pay*. A charge dated the 19th
+      // that was taken on the 14th and linked is confirmed, and counting it
+      // as remaining would overstate what the rest of the month costs.
+      if (date >= today && !hit) remaining += s.amount;
     }
   }
 
@@ -2988,6 +3002,8 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   };
 }
 ```
+
+The drizzle import becomes `import { and, asc, eq, exists, gte, isNull, lte, or, sql } from 'drizzle-orm';` — `gte` and `lte` are new here, and `exists` and `or` must stay, because `getAccountOptions` uses them. `desc` is not added yet; Task 8 is its first caller.
 
 The schedule import at the top of the file becomes:
 
@@ -3041,7 +3057,11 @@ export function SubscriptionCalendar({
   /** True on the phone's calendar tab, so month navigation stays on it. */
   preserveView: boolean;
 }) {
-  const [openDay, setOpenDay] = useState<string | null>(null);
+  // The day and the open flag are separate on purpose. Keyed off one value,
+  // closing the sheet empties it instantly and you watch a blank panel run
+  // through its 200ms exit animation.
+  const [day, setDay] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   const href = (monthKey: string) =>
     preserveView
@@ -3052,7 +3072,7 @@ export function SubscriptionCalendar({
   const total = daysInMonth(data.year, data.month);
   const days = Array.from({ length: total }, (_, i) => makeCalendarDate(data.year, data.month, i + 1));
 
-  const dayItems = openDay ? (data.byDay[openDay] ?? []) : [];
+  const dayItems = day ? (data.byDay[day] ?? []) : [];
 
   return (
     <section>
@@ -3061,11 +3081,15 @@ export function SubscriptionCalendar({
           {MONTH_NAMES[data.month - 1]} {data.year}
         </p>
         <div className="flex items-center gap-1">
-          <Link href={href(shiftMonth(data.year, data.month, -1))} aria-label="Previous month"
+          {/* scroll={false}: after a Link navigation Next resets the scroll
+              position whenever the page root is scrolled at all, and on the
+              phone this calendar sits ~530px down. Without it, stepping
+              through months throws you back to the top every time. */}
+          <Link href={href(shiftMonth(data.year, data.month, -1))} aria-label="Previous month" scroll={false}
                 className="min-h-9 min-w-9 flex items-center justify-center text-ink-faint hover:text-ink transition-colors">
             <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
           </Link>
-          <Link href={href(shiftMonth(data.year, data.month, 1))} aria-label="Next month"
+          <Link href={href(shiftMonth(data.year, data.month, 1))} aria-label="Next month" scroll={false}
                 className="min-h-9 min-w-9 flex items-center justify-center text-ink-faint hover:text-ink transition-colors">
             <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
           </Link>
@@ -3111,7 +3135,7 @@ export function SubscriptionCalendar({
                     `${items.length} ${items.length === 1 ? 'charge' : 'charges'}`
                   : undefined
               }
-              onClick={() => setOpenDay(date)}
+              onClick={() => { setDay(date); setOpen(true); }}
               className={cn(
                 // rounded-lg, not xl: this theme maps lg to 16px, which is on
                 // the 16/24/pill scale, and xl to 20px, which is not — and at a
@@ -3149,7 +3173,7 @@ export function SubscriptionCalendar({
         })}
       </div>
 
-      <Dialog open={openDay !== null} onOpenChange={(next) => { if (!next) setOpenDay(null); }}>
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           showCloseButton={false}
           className="
@@ -3162,7 +3186,7 @@ export function SubscriptionCalendar({
           "
         >
           <DialogTitle className="text-base font-bold tracking-tight">
-            {openDay ? formatDate(openDay, { weekday: 'long', month: 'long', day: 'numeric' }) : ''}
+            {day ? formatDate(day, { weekday: 'long', month: 'long', day: 'numeric' }) : ''}
           </DialogTitle>
           {dayItems.map((o) => (
             <div key={o.subscriptionId} className="flex items-center gap-3 py-2 border-t border-line">
