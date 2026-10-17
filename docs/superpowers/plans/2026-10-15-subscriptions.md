@@ -313,14 +313,26 @@ test('a weekly window opening 2 days into the cycle does not emit the occurrence
 test('a far-future weekly anchor terminates instead of running away', () => {
   // The string compare this loop used to end on is false past year 9999:
   // "10000-01-07" <= "9999-12-31" sorts true. The old loop produced 4.7
-  // million dates here; the window holds two.
+  // million dates here; the window holds three.
   const out = occurrencesBetween(
     sub({ anchorDate: '9999-12-16', cycle: 'weekly' }), '9999-12-01', '9999-12-31', TODAY);
+  // Length first: should the loop ever run away again, deepEqual would spend
+  // over a minute diffing millions of dates before saying so.
+  assert.equal(out.length, 3);
   assert.deepEqual(out, ['9999-12-16', '9999-12-23', '9999-12-30']);
 });
 
-test('a weekly window that ends before the anchor yields nothing, not everything', () => {
-  // kEnd below kStart has to mean an empty range, not an unbounded one.
+test('a weekly window with no occurrence in it yields nothing, not everything', () => {
+  // kEnd below kStart has to mean an empty range, not an unbounded one. For the
+  // loop's own bounds to be what answers, the window has to sit inside a gap:
+  // 2026-01-01 is an occurrence and 2026-01-08 the next, so [01-02, 01-07] makes
+  // kStart 1 and kEnd 0.
+  assert.deepEqual(
+    occurrencesBetween(sub({ anchorDate: '2026-01-01', cycle: 'weekly' }),
+                       '2026-01-02', '2026-01-07', TODAY),
+    []);
+  // A window that closes before the anchor never reaches the loop: the early
+  // return answers it. It is pinned here too, so neither route can drift.
   assert.deepEqual(
     occurrencesBetween(sub({ anchorDate: '2026-06-10', cycle: 'weekly' }),
                        '2026-01-01', '2026-05-31', TODAY),
@@ -577,8 +589,9 @@ export function occurrencesBetween(
     // leans on this module's one load-bearing assumption: that zero-padded
     // dates compare chronologically as strings. That assumption dies at year
     // 10000, where "10000-01-07" <= "9999-12-31" is true because "1" sorts
-    // before "9" — so the loop never ends. A weekly subscription anchored in
-    // 9999 built 4.7 million dates and 1.9GB before anyone saw a page.
+    // before "9" — so the loop ran on to year 99990. A weekly subscription
+    // anchored in 9999 built 4.7 million dates and 1.9GB before anyone saw a
+    // page: 1.65 seconds on every load, for five real occurrences.
     //
     // Integer bounds cannot run away regardless of what the strings do.
     const kStart = Math.max(0, Math.ceil(daysBetween(sub.anchorDate, lo) / 7));
