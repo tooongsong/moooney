@@ -3851,17 +3851,20 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
                 </span>
               )}
             </span>
+            {/* Link on an upcoming row as well as an unconfirmed one: a charge
+                can be taken before its date, and the calendar's "remaining"
+                already assumes a linked one is possible. */}
             {o.state === 'confirmed' ? (
               <button type="button" disabled={busy} onClick={() => unlink(o.transactionId!)}
                       className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink disabled:opacity-40">
                 Unlink
               </button>
-            ) : o.state === 'unconfirmed' ? (
+            ) : (
               <button type="button" disabled={busy} onClick={() => openPicker(o)}
                       className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink disabled:opacity-40">
                 Link
               </button>
-            ) : null}
+            )}
           </div>
 
           {/* Inline rather than a second dialog: a dialog inside a dialog is
@@ -3973,7 +3976,7 @@ The link cycle needs rows to exercise, and this plan creates none. Split the ver
 
 **Proved here, in the harness.** Extend `src/app/dev-preview/page.tsx` to render `SubscriptionHistory`'s markup against a fixture list of `OccurrenceState` values rather than a server call — the simplest way is to lift the presentational part into a small pure component the harness can feed, or to render the same JSX inline in the harness. Cover all four cases and check each reads correctly:
 
-1. A future occurrence → **Upcoming**, with no Link control.
+1. A future occurrence → **Upcoming**, with a Link control: a charge can be taken before its date, and a link is what confirms it.
 2. A past occurrence with nothing linked → **Unconfirmed**, with a Link control. Not "Missed", not "Overdue", and above all not "Paid" — a past date is not evidence.
 3. A confirmed occurrence whose paid amount equals the expected one → **Confirmed**, one amount.
 4. A confirmed occurrence whose paid amount differs → **Confirmed**, the **actual** amount, with `expected $X` beneath it. This is the price-change case and it is the one a person will look for.

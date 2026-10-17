@@ -144,17 +144,20 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
                 </span>
               )}
             </span>
+            {/* Link on an upcoming row as well as an unconfirmed one: a charge
+                can be taken before its date, and the calendar's "remaining"
+                already assumes a linked one is possible. */}
             {o.state === 'confirmed' ? (
               <button type="button" disabled={busy} onClick={() => unlink(o.transactionId!)}
                       className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink disabled:opacity-40">
                 Unlink
               </button>
-            ) : o.state === 'unconfirmed' ? (
+            ) : (
               <button type="button" disabled={busy} onClick={() => openPicker(o)}
                       className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink disabled:opacity-40">
                 Link
               </button>
-            ) : null}
+            )}
           </div>
 
           {/* Inline rather than a second dialog: a dialog inside a dialog is
