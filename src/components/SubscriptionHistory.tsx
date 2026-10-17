@@ -35,8 +35,13 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
     getSubscriptionHistory(subscriptionId)
       .then((d) => { if (live) setData(d); })
       // A failed first load would otherwise leave the spinner up for good,
-      // with an uncaught rejection behind it and nothing to act on.
-      .catch(() => { if (live) toast.error('Could not load payments.'); })
+      // with an uncaught rejection behind it and nothing to act on. A
+      // signed-out redirect rejects it too and has to pass through, or a
+      // false "could not load" rides on top of the login page.
+      .catch((error) => {
+        unstable_rethrow(error);
+        if (live) toast.error('Could not load payments.');
+      })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [subscriptionId]);
