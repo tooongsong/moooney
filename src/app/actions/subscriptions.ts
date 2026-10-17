@@ -432,6 +432,11 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   const links = await db.query.transactions.findMany({
     where: and(
       eq(transactions.userId, user.id),
+      // Expenses only, on the read as on the write. linkTransaction links
+      // nothing else, but updateTransaction can later turn a linked expense
+      // into income, a refund or an adjustment, and without this filter that
+      // row would go on confirming the occurrence with money that came in.
+      eq(transactions.type, 'expense'),
       gte(transactions.subscriptionPeriod, linkFrom),
       lte(transactions.subscriptionPeriod, linkTo),
     ),
@@ -533,7 +538,16 @@ export async function getSubscriptionHistory(id: string): Promise<{
   const all = occurrencesBetween(row, row.anchorDate, upTo, today);
 
   const links = await db.query.transactions.findMany({
-    where: and(eq(transactions.userId, user.id), eq(transactions.subscriptionId, id)),
+    where: and(
+      eq(transactions.userId, user.id),
+      eq(transactions.subscriptionId, id),
+      // Expenses only, as in the calendar's links read and for the same
+      // reason: the two must not disagree about a payment that has since
+      // become income. Such a row is not listed here at all, stranded or
+      // otherwise; its link stays on it and counts again if it is turned
+      // back into an expense.
+      eq(transactions.type, 'expense'),
+    ),
     columns: { id: true, amount: true, subscriptionPeriod: true },
   });
 
