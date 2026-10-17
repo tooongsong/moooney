@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { SubscriptionHistory } from '@/components/SubscriptionHistory';
 import {
   deleteSubscription, saveSubscription, setSubscriptionStatus,
   type SubscriptionRow,
@@ -300,6 +301,8 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
             </div>
           )}
         </div>
+
+        {subscription && <SubscriptionHistory subscriptionId={subscription.id} />}
 
         {subscription && (
           <div className="flex items-center gap-3 pt-1">

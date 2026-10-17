@@ -1,13 +1,13 @@
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, asc, eq, exists, gte, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gte, isNull, lte, or, sql } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { paymentMethods, subscriptions, transactions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
-import { daysBetween, monthRange, safeTimeZone, toCalendarDate, todayIn, yearRange, type CalendarDate } from '@/lib/dates';
+import { addDays, daysBetween, monthRange, safeTimeZone, toCalendarDate, todayIn, yearRange, type CalendarDate } from '@/lib/dates';
 import { isSingleGrapheme } from '@/lib/utils';
 import {
   monthlyEquivalent,
@@ -482,4 +482,160 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
     remaining: round2(remaining),
     isPastMonth: last < today,
   };
+}
+
+export interface OccurrenceState {
+  date: CalendarDate;
+  periodKey: string;
+  state: 'upcoming' | 'confirmed' | 'unconfirmed';
+  paidAmount: number | null;
+  transactionId: string | null;
+}
+
+/**
+ * The last twelve occurrences plus the next one, each with its state.
+ *
+ * Computed over the whole series rather than a rolling window: for a monthly
+ * subscription five years old that is sixty string comparisons, which costs
+ * nothing, and an arbitrary window would quietly lose a yearly subscription's
+ * history.
+ */
+export async function getSubscriptionHistory(id: string): Promise<{
+  today: CalendarDate;
+  expected: number;
+  occurrences: OccurrenceState[];
+} | null> {
+  const user = await getUser();
+  const today = todayIn(safeTimeZone(user.user_metadata?.timezone as string | undefined));
+
+  const [sub] = await db.query.subscriptions.findMany({
+    where: and(eq(subscriptions.id, id), eq(subscriptions.userId, user.id)),
+    columns: SUB_COLUMNS,
+    limit: 1,
+  });
+  if (!sub) return null;
+  const row = { ...sub, amount: toNum(sub.amount, 'amount') } as SubscriptionRow;
+
+  const upTo = nextOccurrence(row, today, today) ?? today;
+  const all = occurrencesBetween(row, row.anchorDate, upTo, today);
+
+  const links = await db.query.transactions.findMany({
+    where: and(eq(transactions.userId, user.id), eq(transactions.subscriptionId, id)),
+    columns: { id: true, amount: true, subscriptionPeriod: true },
+  });
+
+  const paid = new Map<string, { id: string; amount: number }>();
+  for (const l of links) {
+    if (!l.subscriptionPeriod) continue;
+    paid.set(periodKeyOf(row.cycle, l.subscriptionPeriod),
+             { id: l.id, amount: toNum(l.amount, 'amount') });
+  }
+
+  const occurrences = all.slice(-12).map((date) => {
+    const key = periodKeyOf(row.cycle, date);
+    const hit = paid.get(key);
+    return {
+      date,
+      periodKey: key,
+      state: (hit ? 'confirmed' : date >= today ? 'upcoming' : 'unconfirmed') as OccurrenceState['state'],
+      paidAmount: hit ? hit.amount : null,
+      transactionId: hit ? hit.id : null,
+    };
+  });
+
+  return { today, expected: row.amount, occurrences };
+}
+
+export interface LinkCandidate {
+  id: string;
+  date: CalendarDate;
+  merchant: string;
+  amount: number;
+  category: string;
+}
+
+/** Transactions near an occurrence that are not already claimed by something. */
+export async function getLinkCandidates(
+  subscriptionId: string,
+  date: string,
+): Promise<LinkCandidate[]> {
+  const user = await getUser();
+  let anchor: CalendarDate;
+  try {
+    anchor = toCalendarDate(date);
+  } catch {
+    return [];
+  }
+
+  // Ten days either side: a charge rarely lands on the stated day, and a
+  // wider net would make the list something to search rather than pick from.
+  const rows = await db.query.transactions.findMany({
+    where: and(
+      eq(transactions.userId, user.id),
+      gte(transactions.date, addDays(anchor, -10)),
+      lte(transactions.date, addDays(anchor, 10)),
+      isNull(transactions.subscriptionId),
+    ),
+    columns: { id: true, date: true, merchant: true, amount: true, category: true },
+    orderBy: [desc(transactions.date)],
+    limit: 25,
+  });
+
+  return rows.map((r) => ({ ...r, amount: toNum(r.amount, 'amount') }));
+}
+
+export async function linkTransaction(
+  transactionId: string,
+  subscriptionId: string,
+  period: string,
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser();
+  let periodDate: CalendarDate;
+  try {
+    periodDate = toCalendarDate(period);
+  } catch {
+    return { success: false, error: 'Not a valid period' };
+  }
+
+  try {
+    // Inside the try, because it is a database call — the same reason
+    // saveSubscription's ownership lookup is. Without this check a crafted id
+    // could attach someone else's subscription to this transaction.
+    const [owned] = await db.query.subscriptions.findMany({
+      where: and(eq(subscriptions.id, subscriptionId), eq(subscriptions.userId, user.id)),
+      columns: { id: true },
+      limit: 1,
+    });
+    if (!owned) return { success: false, error: 'Subscription not found' };
+
+    const res = await db
+      .update(transactions)
+      .set({ subscriptionId, subscriptionPeriod: periodDate, updatedAt: new Date() })
+      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, user.id)))
+      .returning({ id: transactions.id });
+    if (res.length === 0) return { success: false, error: 'Transaction not found' };
+    revalidate();
+    revalidatePath('/history');
+    return { success: true };
+  } catch (error) {
+    return failed('linkTransaction', error, 'Could not link. Please try again.');
+  }
+}
+
+export async function unlinkTransaction(
+  transactionId: string,
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser();
+  try {
+    // Clears the link only. The expense itself is untouched — the money moved.
+    await db
+      .update(transactions)
+      .set({ subscriptionId: null, subscriptionPeriod: null, updatedAt: new Date() })
+      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, user.id)));
+    revalidate();
+    revalidatePath('/history');
+    return { success: true };
+  } catch (error) {
+    return failed('unlinkTransaction', error, 'Could not unlink. Please try again.');
+  }
 }
