@@ -82,6 +82,35 @@ test('a weekly window opening 2 days into the cycle does not emit the occurrence
   assert.deepEqual(out, ['2026-01-08', '2026-01-15']);
 });
 
+test('a far-future weekly anchor terminates instead of running away', () => {
+  // The string compare this loop used to end on is false past year 9999:
+  // "10000-01-07" <= "9999-12-31" sorts true. The old loop produced 4.7
+  // million dates here; the window holds three.
+  const out = occurrencesBetween(
+    sub({ anchorDate: '9999-12-16', cycle: 'weekly' }), '9999-12-01', '9999-12-31', TODAY);
+  // Length first: should the loop ever run away again, deepEqual would spend
+  // over a minute diffing millions of dates before saying so.
+  assert.equal(out.length, 3);
+  assert.deepEqual(out, ['9999-12-16', '9999-12-23', '9999-12-30']);
+});
+
+test('a weekly window with no occurrence in it yields nothing, not everything', () => {
+  // kEnd below kStart has to mean an empty range, not an unbounded one. For the
+  // loop's own bounds to be what answers, the window has to sit inside a gap:
+  // 2026-01-01 is an occurrence and 2026-01-08 the next, so [01-02, 01-07] makes
+  // kStart 1 and kEnd 0.
+  assert.deepEqual(
+    occurrencesBetween(sub({ anchorDate: '2026-01-01', cycle: 'weekly' }),
+                       '2026-01-02', '2026-01-07', TODAY),
+    []);
+  // A window that closes before the anchor never reaches the loop: the early
+  // return answers it. It is pinned here too, so neither route can drift.
+  assert.deepEqual(
+    occurrencesBetween(sub({ anchorDate: '2026-06-10', cycle: 'weekly' }),
+                       '2026-01-01', '2026-05-31', TODAY),
+    []);
+});
+
 test('a weekly subscription weeks into its life still lands on its own weekday', () => {
   // Every other weekly window opens within a week of the anchor, where the 7
   // in k cannot matter. Months in, a wrong divisor lands on a wrong weekday —

@@ -70,11 +70,20 @@ export function occurrencesBetween(
   const out: CalendarDate[] = [];
 
   if (sub.cycle === 'weekly') {
-    // The first k with anchor + 7k >= lo.
-    let k = Math.max(0, Math.ceil(daysBetween(sub.anchorDate, lo) / 7));
-    for (let d = addDays(sub.anchorDate, 7 * k); d <= hi; k++, d = addDays(sub.anchorDate, 7 * k)) {
-      out.push(d);
-    }
+    // Both bounds computed up front, as integers, the way the monthly and
+    // yearly paths already do.
+    //
+    // The previous version looped while `addDays(anchor, 7k) <= hi`, which
+    // leans on this module's one load-bearing assumption: that zero-padded
+    // dates compare chronologically as strings. That assumption dies at year
+    // 10000, where "10000-01-07" <= "9999-12-31" is true because "1" sorts
+    // before "9" — so the loop never ends. A weekly subscription anchored in
+    // 9999 built 4.7 million dates and 1.9GB before anyone saw a page.
+    //
+    // Integer bounds cannot run away regardless of what the strings do.
+    const kStart = Math.max(0, Math.ceil(daysBetween(sub.anchorDate, lo) / 7));
+    const kEnd = Math.floor(daysBetween(sub.anchorDate, hi) / 7);
+    for (let k = kStart; k <= kEnd; k++) out.push(addDays(sub.anchorDate, 7 * k));
     return out;
   }
 
