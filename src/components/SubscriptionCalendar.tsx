@@ -175,7 +175,7 @@ export function SubscriptionCalendar({
                 </span>
                 {/* A price change shows up here: what was paid, and what was expected. */}
                 {o.paidAmount !== null && o.paidAmount !== o.amount && (
-                  <span className="block text-[10px] text-ink-faint tabular-nums">
+                  <span className="block text-[10px] text-ink-soft tabular-nums">
                     expected {formatCurrency(o.amount)}
                   </span>
                 )}

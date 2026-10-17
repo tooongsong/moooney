@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { unstable_rethrow, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -8,6 +8,7 @@ import {
   getLinkCandidates, getSubscriptionHistory, linkTransaction, unlinkTransaction,
   type LinkCandidate, type OccurrenceState,
 } from '@/app/actions/subscriptions';
+import { LINK_CANDIDATE_LIMIT } from '@/lib/subscriptionSchedule';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
 const STATE_LABEL = { upcoming: 'Upcoming', confirmed: 'Confirmed', unconfirmed: 'Unconfirmed' } as const;
@@ -17,10 +18,14 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
   const [data, setData] = useState<Awaited<ReturnType<typeof getSubscriptionHistory>>>(null);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState<string | null>(null);
-  // null means "not fetched yet", which is not the same as "none found" —
-  // saying "no unlinked transactions" while still looking is a lie the user
-  // acts on.
-  const [candidates, setCandidates] = useState<LinkCandidate[] | null>(null);
+  // Three states, not two. "Still looking" and "the request failed" are each
+  // different from "none found", and saying "none found" for either is a lie
+  // the user acts on by giving up.
+  const [candidates, setCandidates] = useState<LinkCandidate[] | 'loading' | 'failed'>('loading');
+  // Taps can outrun responses: without this, opening one row and quickly
+  // opening another can show the first row's candidates under the second
+  // row's date, and linking one would attach it to the wrong occurrence.
+  const pickSeq = useRef(0);
   const [busy, setBusy] = useState(false);
 
   // No setLoading here: this runs after a link or unlink, and swapping the
@@ -34,12 +39,13 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
     let live = true;
     getSubscriptionHistory(subscriptionId)
       .then((d) => { if (live) setData(d); })
-      // A failed first load would otherwise leave the spinner up for good,
-      // with an uncaught rejection behind it and nothing to act on. A
-      // signed-out redirect rejects it too and has to pass through, or a
-      // false "could not load" rides on top of the login page.
       .catch((error) => {
+        // Rethrow first, exactly as the picker and the dialog do: a
+        // signed-out panel reaches here on its way to /login, and without
+        // this it arrives with a false "could not load" toast on top.
         unstable_rethrow(error);
+        // Otherwise the spinner would stay up for good, with an uncaught
+        // rejection behind it and nothing to act on.
         if (live) toast.error('Could not load payments.');
       })
       .finally(() => { if (live) setLoading(false); });
@@ -47,15 +53,16 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
   }, [subscriptionId]);
 
   async function openPicker(o: OccurrenceState) {
+    const seq = ++pickSeq.current;
     setPicking(o.date);
-    setCandidates(null);
+    setCandidates('loading');
     try {
-      setCandidates(await getLinkCandidates(subscriptionId, o.date));
+      const rows = await getLinkCandidates(subscriptionId, o.date);
+      if (seq === pickSeq.current) setCandidates(rows);
     } catch (error) {
       unstable_rethrow(error);
-      // Out of the "Looking…" state either way: an empty list the user can
-      // close beats a spinner that never resolves.
-      setCandidates([]);
+      if (seq !== pickSeq.current) return;
+      setCandidates('failed');
       toast.error('Could not reach the server. Please try again.');
     }
   }
@@ -70,8 +77,9 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
       const res = await linkTransaction(transactionId, subscriptionId, period);
       if (!res.success) { toast.error(res.error || 'Could not link'); return; }
       setPicking(null);
-      await reload();
-      router.refresh();
+      // The write succeeded. A failing refresh after it is a stale screen,
+      // not a failed link, and must not be reported as one.
+      try { await reload(); router.refresh(); } catch { /* stale, not failed */ }
     } catch (error) {
       unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
@@ -85,8 +93,7 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
     try {
       const res = await unlinkTransaction(transactionId);
       if (!res.success) { toast.error(res.error || 'Could not unlink'); return; }
-      await reload();
-      router.refresh();
+      try { await reload(); router.refresh(); } catch { /* stale, not failed */ }
     } catch (error) {
       unstable_rethrow(error);
       toast.error('Could not reach the server. Please try again.');
@@ -132,7 +139,7 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
                 {formatCurrency(o.paidAmount ?? data.expected)}
               </span>
               {o.paidAmount !== null && o.paidAmount !== data.expected && (
-                <span className="block text-[10px] tabular-nums text-ink-faint">
+                <span className="block text-[10px] tabular-nums text-ink-soft">
                   expected {formatCurrency(data.expected)}
                 </span>
               )}
@@ -154,9 +161,13 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
               a focus-trap argument nobody wins. */}
           {picking === o.date && (
             <div className="pt-2 pl-1">
-              {candidates === null ? (
+              {candidates === 'loading' ? (
                 <p className="flex items-center gap-2 text-[11px] text-ink-faint">
                   <Loader2 className="h-3 w-3 animate-spin" /> Looking…
+                </p>
+              ) : candidates === 'failed' ? (
+                <p className="text-[11px] text-ink-soft">
+                  Could not load. Tap Link again to retry.
                 </p>
               ) : candidates.length === 0 ? (
                 <p className="text-[11px] text-ink-faint">
@@ -180,6 +191,12 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
                     </span>
                   </button>
                 ))
+              )}
+              {Array.isArray(candidates) && candidates.length === LINK_CANDIDATE_LIMIT && (
+                <p className="pt-1 text-[10px] text-ink-soft">
+                  The {LINK_CANDIDATE_LIMIT} nearest this date. Unlink something else if
+                  the charge you want is missing.
+                </p>
               )}
               <button type="button" onClick={() => setPicking(null)}
                       className="pt-1 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink">

@@ -10,6 +10,7 @@ import { createClient } from '@/lib/supabase/server';
 import { addDays, daysBetween, monthRange, safeTimeZone, toCalendarDate, todayIn, yearRange, type CalendarDate } from '@/lib/dates';
 import { isSingleGrapheme } from '@/lib/utils';
 import {
+  LINK_CANDIDATE_LIMIT,
   monthlyEquivalent,
   nextOccurrence,
   occurrencesBetween,
@@ -602,8 +603,14 @@ export async function getLinkCandidates(
       isNull(transactions.subscriptionId),
     ),
     columns: { id: true, date: true, merchant: true, amount: true, category: true },
-    orderBy: [desc(transactions.date)],
-    limit: 25,
+    // Nearest the occurrence first, not newest first. The window is 21 days
+    // wide and the cap is 25, and after a statement import there can easily
+    // be more than 25 expenses in it — in which case newest-first silently
+    // drops the older half of the window, which is where a charge posted on
+    // or before the stated day lives. The one transaction most likely to be
+    // the right one was the one being cut.
+    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, desc(transactions.date)],
+    limit: LINK_CANDIDATE_LIMIT,
   });
 
   return rows.map((r) => ({ ...r, amount: toNum(r.amount, 'amount') }));
@@ -636,9 +643,19 @@ export async function linkTransaction(
     const res = await db
       .update(transactions)
       .set({ subscriptionId, subscriptionPeriod: periodDate, updatedAt: new Date() })
-      .where(and(eq(transactions.id, transactionId), eq(transactions.userId, user.id)))
+      // isNull: the picker only ever offers unlinked expenses, so a request
+      // to link one that is already linked came from a stale view — a second
+      // device, or a tab left open. Moving it would silently revert whatever
+      // occurrence it currently confirms.
+      .where(and(
+        eq(transactions.id, transactionId),
+        eq(transactions.userId, user.id),
+        isNull(transactions.subscriptionId),
+      ))
       .returning({ id: transactions.id });
-    if (res.length === 0) return { success: false, error: 'Transaction not found' };
+    if (res.length === 0) {
+      return { success: false, error: 'That payment is no longer available to link' };
+    }
     revalidate();
     revalidatePath('/history');
     return { success: true };
