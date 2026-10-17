@@ -3067,9 +3067,11 @@ The schedule import at the top of the file becomes:
 
 ```ts
 import {
+  LINK_CANDIDATE_LIMIT,
   monthlyEquivalent,
   nextOccurrence,
   occurrencesBetween,
+  occurrenceState,
   periodKeyOf,
   SUBSCRIPTION_CYCLES,
   SUBSCRIPTION_STATUSES,
@@ -3673,8 +3675,9 @@ import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   getLinkCandidates, getSubscriptionHistory, linkTransaction, unlinkTransaction,
-  LINK_CANDIDATE_LIMIT, type LinkCandidate, type OccurrenceState,
+  type LinkCandidate, type OccurrenceState,
 } from '@/app/actions/subscriptions';
+import { LINK_CANDIDATE_LIMIT } from '@/lib/subscriptionSchedule';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
 const STATE_LABEL = { upcoming: 'Upcoming', confirmed: 'Confirmed', unconfirmed: 'Unconfirmed' } as const;
