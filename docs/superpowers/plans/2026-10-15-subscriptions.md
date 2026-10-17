@@ -3640,9 +3640,15 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
     let live = true;
     getSubscriptionHistory(subscriptionId)
       .then((d) => { if (live) setData(d); })
-      // A failed first load would otherwise leave the spinner up for good,
-      // with an uncaught rejection behind it and nothing to act on.
-      .catch(() => { if (live) toast.error('Could not load payments.'); })
+      .catch((error) => {
+        // Rethrow first, exactly as the picker and the dialog do: a
+        // signed-out panel reaches here on its way to /login, and without
+        // this it arrives with a false "could not load" toast on top.
+        unstable_rethrow(error);
+        // Otherwise the spinner would stay up for good, with an uncaught
+        // rejection behind it and nothing to act on.
+        if (live) toast.error('Could not load payments.');
+      })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [subscriptionId]);
