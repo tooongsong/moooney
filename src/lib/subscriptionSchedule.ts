@@ -160,6 +160,13 @@ export function monthlyEquivalent(amount: number, cycle: SubscriptionCycle): num
   return amount;
 }
 
+/** How many candidates the picker offers at once.
+ *
+ *  Here rather than beside the query that uses it: a "use server" file may
+ *  export only async functions, and a plain const there fails the build
+ *  while passing tsc and the tests. */
+export const LINK_CANDIDATE_LIMIT = 25;
+
 export type OccurrenceStateName = 'upcoming' | 'confirmed' | 'unconfirmed';
 
 /**
@@ -182,14 +189,6 @@ export function occurrenceState(
   if (linked) return 'confirmed';
   return date >= today ? 'upcoming' : 'unconfirmed';
 }
-
-/**
- * How many candidates the link picker offers at once, and the number it names
- * when it says it is showing only the nearest. It lives here rather than beside
- * getLinkCandidates because a "use server" file may export only async
- * functions, and the picker needs the number on the client.
- */
-export const LINK_CANDIDATE_LIMIT = 25;
 
 /** "in 4 days" / "yesterday". Pairs with the absolute date, never replaces it:
  *  "in 4 days" alone is useless a week later on a screenshot. */

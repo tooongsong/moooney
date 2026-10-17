@@ -609,7 +609,9 @@ export async function getLinkCandidates(
     // drops the older half of the window, which is where a charge posted on
     // or before the stated day lives. The one transaction most likely to be
     // the right one was the one being cut.
-    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, desc(transactions.date)],
+    // id last: same-day rows tie on both keys above, and without a final one
+    // which of them survives the cap is whatever order Postgres returns.
+    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, desc(transactions.date), asc(transactions.id)],
     limit: LINK_CANDIDATE_LIMIT,
   });
 

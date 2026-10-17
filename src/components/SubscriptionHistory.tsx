@@ -194,8 +194,7 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
               )}
               {Array.isArray(candidates) && candidates.length === LINK_CANDIDATE_LIMIT && (
                 <p className="pt-1 text-[10px] text-ink-soft">
-                  The {LINK_CANDIDATE_LIMIT} nearest this date. Unlink something else if
-                  the charge you want is missing.
+                  Showing the {LINK_CANDIDATE_LIMIT} payments nearest this date.
                 </p>
               )}
               <button type="button" onClick={() => setPicking(null)}
