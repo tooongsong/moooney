@@ -1726,7 +1726,7 @@ A working surface: what you pay, what is coming, and everything you have. No cal
 
 - [ ] **Step 1: Write the failing test for the relative label**
 
-Append to `src/lib/subscriptionSchedule.test.ts`, and add `relativeDayLabel` to its import:
+Append to `src/lib/subscriptionSchedule.test.ts`, adding `relativeDayLabel` and `occurrenceState` to its import:
 
 ```ts
 test('a link confirms an occurrence; a date never does', () => {
@@ -1740,6 +1740,9 @@ test('a link confirms an occurrence; a date never does', () => {
   assert.equal(occurrenceState(false, '2026-11-05', T), 'upcoming');
   // Today is upcoming, not unconfirmed: the charge may not have landed.
   assert.equal(occurrenceState(false, T, T), 'upcoming');
+  // And the day before today is not. Without this the rule could grant an
+  // arbitrary grace period and no test would notice.
+  assert.equal(occurrenceState(false, '2026-10-14', T), 'unconfirmed');
 });
 
 test('relative day labels read like a person would say them', () => {
@@ -3030,6 +3033,7 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   for (const s of rows) {
     for (const date of occurrencesBetween(s, first, last, today)) {
       const hit = paid.get(`${s.id}|${periodKeyOf(s.cycle, date)}`);
+      const state = occurrenceState(Boolean(hit), date, today);
       (byDay[date] ??= []).push({
         subscriptionId: s.id,
         name: s.name,
@@ -3037,14 +3041,18 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
         amount: s.amount,
         cycle: s.cycle,
         date,
-        state: occurrenceState(Boolean(hit), date, today),
+        state,
         paidAmount: hit ? hit.amount : null,
       });
       expected += s.amount;
       // Not merely still to come — still to *pay*. A charge dated the 19th
       // that was taken on the 14th and linked is confirmed, and counting it
       // as remaining would overstate what the rest of the month costs.
-      if (date >= today && !hit) remaining += s.amount;
+      //
+      // Asked of occurrenceState rather than spelled out again: `date >=
+      // today && !hit` is the same boundary in different words, sitting two
+      // lines from the call, and if the rule ever moves they would disagree.
+      if (state === 'upcoming') remaining += s.amount;
     }
   }
 
@@ -3253,8 +3261,10 @@ export function SubscriptionCalendar({
               <SubscriptionMark name={o.name} emoji={o.emoji} size={32} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-ink">{o.name}</span>
-                {/* The state always carries a word, not only a colour. */}
-                <span className="block text-[11px] text-ink-faint">{STATE_LABEL[o.state]}</span>
+                {/* A word, not only a colour — and in ink-soft, not the
+                    faintest available, for the same reason the payments
+                    panel uses it: the state is the thing being read. */}
+                <span className="block text-[11px] text-ink-soft">{STATE_LABEL[o.state]}</span>
               </span>
               <span className="shrink-0 text-right">
                 <span className="block text-sm font-bold tabular-nums text-ink">
@@ -3586,9 +3596,12 @@ export async function getLinkCandidates(
     // drops the older half of the window, which is where a charge posted on
     // or before the stated day lives. The one transaction most likely to be
     // the right one was the one being cut.
-    // id last: same-day rows tie on both keys above, and without a final one
-    // which of them survives the cap is whatever order Postgres returns.
-    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, desc(transactions.date), asc(transactions.id)],
+    // Then the earlier day, not the later one: at equal distance a charge
+    // posted the day *before* the stated date is the likelier match, which
+    // is the same reasoning that put distance first. Then the id, because
+    // same-day rows tie on both keys above and without a final one which of
+    // them survives the cap is whatever order Postgres returns.
+    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, asc(transactions.date), asc(transactions.id)],
     limit: LINK_CANDIDATE_LIMIT,
   });
 
@@ -3630,6 +3643,10 @@ export async function linkTransaction(
         eq(transactions.id, transactionId),
         eq(transactions.userId, user.id),
         isNull(transactions.subscriptionId),
+        // The picker only offers expenses, but the picker is a read filter
+        // and this is the write. A crafted call could otherwise confirm an
+        // occurrence against money that came in.
+        eq(transactions.type, 'expense'),
       ))
       .returning({ id: transactions.id });
     if (res.length === 0) {
@@ -3989,6 +4006,19 @@ Prove the one rule holds, take the harness out, and ship.
 
 **Files:**
 - Delete: `src/app/dev-preview/page.tsx`
+
+- [ ] **Step 0: Six carried-over fixes from the Task 8 re-review**
+
+Small, and they land in files this task is already touching or deleting. Each is in the plan's own blocks above; apply them from there.
+
+1. **`src/app/actions/subscriptions.ts`, `getMonthOccurrences`:** hoist `const state = occurrenceState(...)` and use `state === 'upcoming'` for `remaining`, in place of `date >= today && !hit`. That is the same boundary spelled a second way, two lines from the call that computes it — if the rule ever moves, the calendar grid and the "remaining" figure disagree, which is the exact failure the function's own docblock warns about.
+2. **`getLinkCandidates`:** the equal-distance tiebreak becomes `asc(transactions.date)`. At the same distance, a charge posted the day *before* the stated date is the likelier match — the same reasoning that put distance first in the first place.
+3. **`linkTransaction`:** add `eq(transactions.type, 'expense')` to the UPDATE's `where`. The picker only offers expenses, but the picker is a read filter and this is the write; a crafted call could otherwise confirm an occurrence against money that came in.
+4. **`src/components/SubscriptionCalendar.tsx`:** the day sheet's state word moves from `text-ink-faint` to `text-ink-soft`, matching the payments panel. The state is the thing being read.
+5. **`src/lib/subscriptionSchedule.test.ts`:** one more assertion in the state table — `occurrenceState(false, '2026-10-14', T) === 'unconfirmed'`. The table pinned today's side of the boundary and not yesterday's, so a rule granting an arbitrary grace period passed it.
+6. **The harness's own copy of the old ternary** (`src/app/dev-preview/page.tsx`, the fixture builder) needs nothing — Step 6 deletes the file.
+
+Run `npm test` and `npx tsc --noEmit` after these, before going on.
 
 - [ ] **Step 1: Prove the one rule from the code, not from a before-and-after**
 
