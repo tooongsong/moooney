@@ -188,7 +188,7 @@ const HISTORY_NOTION: HistoryData = {
 
 // Apple on the 30th, with a card statement just imported: more lines near the date than the picker will
 // show. It offers the nearest, as getLinkCandidates orders them (the 30th, then a day either side, then two,
-// then three), and says it is only the nearest.
+// then three; rows on one day by id), and says it is showing only the nearest.
 const HISTORY_APPLE: HistoryData = {
   expected: 2.99,
   occurrences: [
@@ -303,8 +303,7 @@ function HistoryPanel({ data, picking = null, candidates = [] }: {
               )}
               {Array.isArray(candidates) && candidates.length === LINK_CANDIDATE_LIMIT && (
                 <p className="pt-1 text-[10px] text-ink-soft">
-                  The {LINK_CANDIDATE_LIMIT} nearest this date. Unlink something else if
-                  the charge you want is missing.
+                  Showing the {LINK_CANDIDATE_LIMIT} payments nearest this date.
                 </p>
               )}
               <button type="button"
@@ -457,7 +456,7 @@ const STAND_IN_SCRIPT = `(function (data) {
   }
   function candidates(date) {
     return tx.filter(function (t) { return !t.subscriptionId && Math.abs(apart(t.date, date)) <= 10; })
-      .sort(function (a, b) { return (Math.abs(apart(a.date, date)) - Math.abs(apart(b.date, date))) || (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); })
+      .sort(function (a, b) { return (Math.abs(apart(a.date, date)) - Math.abs(apart(b.date, date))) || (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); })
       .slice(0, data.limit)
       .map(function (t) { return { id: t.id, date: t.date, merchant: t.merchant, amount: t.amount, category: t.category }; });
   }
