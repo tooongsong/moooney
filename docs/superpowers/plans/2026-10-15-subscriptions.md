@@ -924,7 +924,12 @@ In `src/app/actions/manage.ts`, add `subscriptions` to the `@/db/schema` import,
 ```ts
 export async function deletePaymentMethod(id: string) {
   // RLS does not apply on this path: the app connects as `postgres`, which has
-  // rolbypassrls, so every query here scopes itself to the caller.
+  // rolbypassrls, so the lookup and the delete scope themselves to the caller.
+  //
+  // The three reference checks below deliberately do not. A foreign key fires
+  // on any row that references the account, whoever owns that row; filtered to
+  // the caller they would miss another user's reference, and the delete would
+  // then fail on the constraint as an unhandled error instead of archiving.
   const user = await getUser();
 
   const account = await db.query.paymentMethods.findFirst({
@@ -1489,8 +1494,10 @@ Then append to `src/lib/utils.test.ts`, adding `isSingleGrapheme` to its import:
 
 ```ts
 test('a joined emoji is one grapheme, however many code points it is made of', () => {
-  // Each of these was rejected by the code-point rule this replaced. The
-  // counts are what Array.from would have returned.
+  // Three or more code points were rejected by the code-point rule this
+  // replaced, which refused anything over two. 👍🏽 and 🇯🇵 are two each, so it
+  // accepted them; they are here as the two-code-point cases of one grapheme.
+  // The counts are what Array.from would have returned.
   for (const [emoji, codePoints] of [
     ['🧑‍💻', 3],   // zero-width joiner
     ['🏳️‍🌈', 4],   // flag + variation selector + ZWJ
@@ -1781,9 +1788,9 @@ export type OccurrenceStateName = 'upcoming' | 'confirmed' | 'unconfirmed';
  * dated today may simply not have landed yet, and calling it unconfirmed
  * would be an accusation rather than a fact.
  *
- * Three surfaces render this — the calendar, the history panel and the
- * preview harness — and the calendar's own comment already warns what
- * happens when two views of one payment disagree.
+ * Two surfaces render this — the calendar and the history panel — and the
+ * calendar's own comment already warns what happens when two views of one
+ * payment disagree.
  */
 export function occurrenceState(
   linked: boolean,

@@ -101,7 +101,12 @@ export async function archivePaymentMethod(id: string) {
 
 export async function deletePaymentMethod(id: string) {
   // RLS does not apply on this path: the app connects as `postgres`, which has
-  // rolbypassrls, so every query here scopes itself to the caller.
+  // rolbypassrls, so the lookup and the delete scope themselves to the caller.
+  //
+  // The three reference checks below deliberately do not. A foreign key fires
+  // on any row that references the account, whoever owns that row; filtered to
+  // the caller they would miss another user's reference, and the delete would
+  // then fail on the constraint as an unhandled error instead of archiving.
   const user = await getUser();
 
   const account = await db.query.paymentMethods.findFirst({

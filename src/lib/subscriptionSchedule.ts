@@ -177,9 +177,9 @@ export type OccurrenceStateName = 'upcoming' | 'confirmed' | 'unconfirmed';
  * dated today may simply not have landed yet, and calling it unconfirmed
  * would be an accusation rather than a fact.
  *
- * Three surfaces render this — the calendar, the history panel and the
- * preview harness — and the calendar's own comment already warns what
- * happens when two views of one payment disagree.
+ * Two surfaces render this — the calendar and the history panel — and the
+ * calendar's own comment already warns what happens when two views of one
+ * payment disagree.
  */
 export function occurrenceState(
   linked: boolean,

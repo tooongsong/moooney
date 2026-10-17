@@ -43,8 +43,10 @@ test('a leap day survives the round trip', () => {
 });
 
 test('a joined emoji is one grapheme, however many code points it is made of', () => {
-  // Each of these was rejected by the code-point rule this replaced. The
-  // counts are what Array.from would have returned.
+  // Three or more code points were rejected by the code-point rule this
+  // replaced, which refused anything over two. 👍🏽 and 🇯🇵 are two each, so it
+  // accepted them; they are here as the two-code-point cases of one grapheme.
+  // The counts are what Array.from would have returned.
   for (const [emoji, codePoints] of [
     ['🧑‍💻', 3],   // zero-width joiner
     ['🏳️‍🌈', 4],   // flag + variation selector + ZWJ
