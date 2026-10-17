@@ -7,7 +7,9 @@ import { SubscriptionList, type ListItem } from '@/components/SubscriptionList';
 import { SubscriptionMark } from '@/components/SubscriptionMark';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 import { monthRange } from '@/lib/dates';
-import { nextOccurrence, occurrencesBetween, relativeDayLabel } from '@/lib/subscriptionSchedule';
+import {
+  LINK_CANDIDATE_LIMIT, nextOccurrence, occurrencesBetween, occurrenceState, relativeDayLabel,
+} from '@/lib/subscriptionSchedule';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import type {
   LinkCandidate, MonthOccurrences, OccurrenceState, OrphanedLink, UpcomingOccurrence,
@@ -172,6 +174,39 @@ const HISTORY_ZOOM: HistoryData = {
   orphaned: [{ transactionId: 't-z1', period: '2026-06-10', amount: 20 }],
 };
 
+// Notion on the 3rd, $8. The picker for October's row asked and the request failed: it says so, and says how
+// to try again, instead of claiming there is nothing to link.
+const HISTORY_NOTION: HistoryData = {
+  expected: 8,
+  occurrences: [
+    { date: '2026-08-03', periodKey: '2026-08', state: 'confirmed', paidAmount: 8, transactionId: 't-n-aug' },
+    { date: '2026-09-03', periodKey: '2026-09', state: 'unconfirmed', paidAmount: null, transactionId: null },
+    { date: '2026-10-03', periodKey: '2026-10', state: 'unconfirmed', paidAmount: null, transactionId: null },
+  ],
+  orphaned: [],
+};
+
+// Apple on the 30th, with a card statement just imported: more lines near the date than the picker will
+// show. It offers the nearest, as getLinkCandidates orders them (the 30th, then a day either side, then two,
+// then three), and says it is only the nearest.
+const HISTORY_APPLE: HistoryData = {
+  expected: 2.99,
+  occurrences: [
+    { date: '2026-08-30', periodKey: '2026-08', state: 'confirmed', paidAmount: 2.99, transactionId: 't-a-aug' },
+    { date: '2026-09-30', periodKey: '2026-09', state: 'unconfirmed', paidAmount: null, transactionId: null },
+    { date: '2026-10-30', periodKey: '2026-10', state: 'upcoming', paidAmount: null, transactionId: null },
+  ],
+  orphaned: [],
+};
+const CAPPED_DAYS = ['2026-09-30', '2026-10-01', '2026-09-29', '2026-09-28', '2026-09-27'];
+const CAPPED_CANDIDATES: LinkCandidate[] = Array.from({ length: LINK_CANDIDATE_LIMIT }, (_, i) => ({
+  id: `cap-${i + 1}`,
+  date: CAPPED_DAYS[Math.floor(i / 5)],
+  merchant: `Card statement line ${String(i + 1).padStart(2, '0')}`,
+  amount: 4 + (i % 7),
+  category: 'Other',
+}));
+
 const CANDIDATES: LinkCandidate[] = [
   { id: 'c-1', date: '2026-08-17', merchant: 'Spotify', amount: 11.99, category: 'Entertainment' },
   { id: 'c-2', date: '2026-08-14', merchant: "Trader Joe's #412, 4 Union Square East, New York", amount: 123456.78, category: 'Groceries' },
@@ -187,7 +222,7 @@ const STATE_LABEL = { upcoming: 'Upcoming', confirmed: 'Confirmed', unconfirmed:
 function HistoryPanel({ data, picking = null, candidates = [] }: {
   data: HistoryData;
   picking?: string | null;
-  candidates?: LinkCandidate[] | null;
+  candidates?: LinkCandidate[] | 'loading' | 'failed';
 }) {
   const busy = false;
   return (
@@ -214,7 +249,7 @@ function HistoryPanel({ data, picking = null, candidates = [] }: {
                 {formatCurrency(o.paidAmount ?? data.expected)}
               </span>
               {o.paidAmount !== null && o.paidAmount !== data.expected && (
-                <span className="block text-[10px] tabular-nums text-ink-faint">
+                <span className="block text-[10px] tabular-nums text-ink-soft">
                   expected {formatCurrency(data.expected)}
                 </span>
               )}
@@ -236,9 +271,13 @@ function HistoryPanel({ data, picking = null, candidates = [] }: {
               a focus-trap argument nobody wins. */}
           {picking === o.date && (
             <div className="pt-2 pl-1">
-              {candidates === null ? (
+              {candidates === 'loading' ? (
                 <p className="flex items-center gap-2 text-[11px] text-ink-faint">
                   <Loader2 className="h-3 w-3 animate-spin" /> Looking…
+                </p>
+              ) : candidates === 'failed' ? (
+                <p className="text-[11px] text-ink-soft">
+                  Could not load. Tap Link again to retry.
                 </p>
               ) : candidates.length === 0 ? (
                 <p className="text-[11px] text-ink-faint">
@@ -261,6 +300,12 @@ function HistoryPanel({ data, picking = null, candidates = [] }: {
                     </span>
                   </button>
                 ))
+              )}
+              {Array.isArray(candidates) && candidates.length === LINK_CANDIDATE_LIMIT && (
+                <p className="pt-1 text-[10px] text-ink-soft">
+                  The {LINK_CANDIDATE_LIMIT} nearest this date. Unlink something else if
+                  the charge you want is missing.
+                </p>
               )}
               <button type="button"
                       className="pt-1 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink">
@@ -340,16 +385,34 @@ const STAND_IN_TX: StandInTx[] = [
   standInTx('t-c3', '2026-08-09', '网易云音乐', 12.5, 'Entertainment'),
   standInTx('t-c4', '2026-09-14', 'Spotify', 13.99, 'Entertainment'),
   standInTx('t-c5', '2026-09-29', 'Apple.com/bill', 2.99, 'Bills'),
+  // A card statement imported beside iCloud+'s September 30: thirty lines over the six days around it, with
+  // the true charge (t-c5, the 29th) among them. More than the cap, so its picker shows the nearest and says
+  // so. Kept clear of every other occurrence's window, so the other pickers are as they were.
+  ...Array.from({ length: 30 }, (_, i) => standInTx(
+    `t-s${String(i + 1).padStart(2, '0')}`,
+    ['2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01'][i % 6],
+    `Card statement line ${String(i + 1).padStart(2, '0')}`, 4 + (i % 7), 'Other',
+  )),
 ];
 
 // Each subscription's whole series up to its next occurrence, from the real schedule.
 const standInSeries = (s: ListItem) =>
   occurrencesBetween(s, s.anchorDate, nextOccurrence(s, TODAY, TODAY) ?? TODAY, TODAY);
 
+const STAND_IN_SERIES = Object.fromEntries(
+  ITEMS.map((s) => [s.id, { expected: s.amount, cycle: s.cycle, dates: standInSeries(s) }]),
+);
+
 const STAND_IN = {
   today: TODAY,
-  series: Object.fromEntries(
-    ITEMS.map((s) => [s.id, { expected: s.amount, cycle: s.cycle, dates: standInSeries(s) }]),
+  limit: LINK_CANDIDATE_LIMIT,
+  series: STAND_IN_SERIES,
+  // The state rule is not copied into the script. The real occurrenceState answers both questions for every
+  // date here, linked and not, and the script only looks the answer up.
+  states: Object.fromEntries(
+    Object.entries(STAND_IN_SERIES).map(([id, s]) => [id, Object.fromEntries(
+      s.dates.map((d) => [d, { linked: occurrenceState(true, d, TODAY), unlinked: occurrenceState(false, d, TODAY) }]),
+    )]),
   ),
   transactions: STAND_IN_TX,
 };
@@ -357,9 +420,10 @@ const STAND_IN = {
 // Plain ES5 on purpose, and no backslashes: it is serialised into the page as text. It answers what
 // the real actions would, to the same contract: the last twelve occurrences with a state each, plus
 // the links whose period matches nothing in the series; candidates within ten days that are not
-// linked, newest first; a link; an unlink. A single-argument call that is not a transaction id is the
-// panel's own load only the first time its action id is seen, which is how a later Delete, whose
-// arguments look the same, is told apart and left to the real server.
+// linked, nearest first and no more than the cap; a link of a payment that is still unlinked; an
+// unlink. A single-argument call that is not a transaction id is the panel's own load only the first
+// time its action id is seen, which is how a later Delete, whose arguments look the same, is told
+// apart and left to the real server.
 const STAND_IN_SCRIPT = `(function (data) {
   if (window.__historyStandIn) return;
   window.__historyStandIn = data;
@@ -384,7 +448,8 @@ const STAND_IN_SCRIPT = `(function (data) {
       expected: s.expected,
       occurrences: s.dates.slice(-12).map(function (d) {
         var hit = paid[key(s.cycle, d)];
-        return { date: d, periodKey: key(s.cycle, d), state: hit ? 'confirmed' : d >= data.today ? 'upcoming' : 'unconfirmed', paidAmount: hit ? hit.amount : null, transactionId: hit ? hit.id : null };
+        var st = data.states[id][d];
+        return { date: d, periodKey: key(s.cycle, d), state: hit ? st.linked : st.unlinked, paidAmount: hit ? hit.amount : null, transactionId: hit ? hit.id : null };
       }),
       orphaned: mine.filter(function (t) { return !live[key(s.cycle, t.subscriptionPeriod)]; })
         .map(function (t) { return { transactionId: t.id, period: t.subscriptionPeriod, amount: t.amount }; }),
@@ -392,13 +457,14 @@ const STAND_IN_SCRIPT = `(function (data) {
   }
   function candidates(date) {
     return tx.filter(function (t) { return !t.subscriptionId && Math.abs(apart(t.date, date)) <= 10; })
-      .sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 25)
+      .sort(function (a, b) { return (Math.abs(apart(a.date, date)) - Math.abs(apart(b.date, date))) || (a.date < b.date ? 1 : a.date > b.date ? -1 : 0); })
+      .slice(0, data.limit)
       .map(function (t) { return { id: t.id, date: t.date, merchant: t.merchant, amount: t.amount, category: t.category }; });
   }
   function link(tid, sid, period) {
     var t = tx.filter(function (x) { return x.id === tid; })[0];
     if (!data.series[sid]) return { success: false, error: 'Subscription not found' };
-    if (!t) return { success: false, error: 'Transaction not found' };
+    if (!t || t.subscriptionId) return { success: false, error: 'That payment is no longer available to link' };
     t.subscriptionId = sid;
     t.subscriptionPeriod = period;
     return { success: true };
@@ -426,6 +492,19 @@ const STAND_IN_SCRIPT = `(function (data) {
     return Promise.resolve(new Response('0:' + root + nl + '1:' + JSON.stringify(value) + nl, { status: 200, headers: { 'content-type': 'text/x-component' } }));
   };
 })(${JSON.stringify(STAND_IN)});`;
+
+type Frame = {
+  name: string; data: HistoryData; picking: string | null;
+  candidates: LinkCandidate[] | 'loading' | 'failed';
+};
+const FRAMES: Frame[] = [
+  { name: 'iCloud+', data: HISTORY_ICLOUD, picking: null, candidates: [] },
+  { name: 'Spotify', data: HISTORY_SPOTIFY, picking: '2026-08-15', candidates: CANDIDATES },
+  { name: 'Oatly delivery', data: HISTORY_OATLY, picking: '2026-10-05', candidates: 'loading' },
+  { name: 'Zoom (paused, no occurrences)', data: HISTORY_ZOOM, picking: null, candidates: [] },
+  { name: 'Notion (picker failed)', data: HISTORY_NOTION, picking: '2026-10-03', candidates: 'failed' },
+  { name: 'Apple (picker at its cap)', data: HISTORY_APPLE, picking: '2026-09-30', candidates: CAPPED_CANDIDATES },
+];
 
 export default async function DevPreview({
   searchParams,
@@ -510,12 +589,7 @@ export default async function DevPreview({
           turns any sideways overflow into a scroll bar inside the frame. */}
       <section id="history" className="pt-10">
         <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-3">Payments panel</p>
-        {[
-          { name: 'iCloud+', data: HISTORY_ICLOUD, picking: null, candidates: [] },
-          { name: 'Spotify', data: HISTORY_SPOTIFY, picking: '2026-08-15', candidates: CANDIDATES },
-          { name: 'Oatly delivery', data: HISTORY_OATLY, picking: '2026-10-05', candidates: null },
-          { name: 'Zoom (paused, no occurrences)', data: HISTORY_ZOOM, picking: null, candidates: [] },
-        ].map((f) => (
+        {FRAMES.map((f) => (
           <div
             key={f.name}
             className="mb-6 grid gap-4 overflow-y-auto rounded-3xl bg-paper-card p-6 max-lg:-mx-6 max-lg:rounded-none lg:max-w-md"
