@@ -1,13 +1,17 @@
+import { Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import Script from 'next/script';
 import { SubscriptionCalendar } from '@/components/SubscriptionCalendar';
 import { SubscriptionList, type ListItem } from '@/components/SubscriptionList';
 import { SubscriptionMark } from '@/components/SubscriptionMark';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 import { monthRange } from '@/lib/dates';
-import { occurrencesBetween, relativeDayLabel } from '@/lib/subscriptionSchedule';
+import { nextOccurrence, occurrencesBetween, relativeDayLabel } from '@/lib/subscriptionSchedule';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
-import type { LinkCandidate, MonthOccurrences, OccurrenceState, UpcomingOccurrence } from '@/app/actions/subscriptions';
+import type {
+  LinkCandidate, MonthOccurrences, OccurrenceState, OrphanedLink, UpcomingOccurrence,
+} from '@/app/actions/subscriptions';
 
 // A folder named with a leading underscore is private in Next.js and never
 // routes at all — hence "dev-preview". Gated so it cannot ship.
@@ -105,14 +109,18 @@ const MONTHS: MonthOccurrences[] = [
 // ---- SubscriptionHistory, as the dialog shows it once loaded -----------------
 // Hand-typed OccurrenceState values: the component fetches through a server action and this
 // page has no session. A list always ends at the *next* occurrence, which is today for one
-// subscription and a later date for another, never both. Hence two.
+// subscription and a later date for another, never both. Hence more than one.
+
+type HistoryData = { expected: number; occurrences: OccurrenceState[]; orphaned: OrphanedLink[] };
 
 // iCloud+ on the 31st, $2.99 expected. Newest first, as the component lists them:
 //   Oct 31  Upcoming     after today, nothing to do yet          no Link control
 //   Sep 30  Unconfirmed  in the past, nothing linked             Link
 //   Aug 31  Confirmed    paid what was expected                  one amount
 //   Jul 31  Confirmed    paid $3.49, so the price rose           the actual, with "expected" beneath
-const HISTORY_ICLOUD: { expected: number; occurrences: OccurrenceState[] } = {
+// The December payment is linked to a date the series no longer has (the first payment date was
+// moved later), so it is listed apart, with an Unlink.
+const HISTORY_ICLOUD: HistoryData = {
   expected: 2.99,
   occurrences: [
     { date: '2026-06-30', periodKey: '2026-06', state: 'unconfirmed', paidAmount: null, transactionId: null },
@@ -121,17 +129,37 @@ const HISTORY_ICLOUD: { expected: number; occurrences: OccurrenceState[] } = {
     { date: '2026-09-30', periodKey: '2026-09', state: 'unconfirmed', paidAmount: null, transactionId: null },
     { date: '2026-10-31', periodKey: '2026-10', state: 'upcoming', paidAmount: null, transactionId: null },
   ],
+  orphaned: [{ transactionId: 't-old', period: '2025-12-31', amount: 2.99 }],
 };
 
 // Spotify on the 15th, $11.99. The 15th of October is today, so it reads Upcoming: a charge
 // dated today may not have landed yet. August's picker is open, with a merchant long enough to
 // need its ellipsis and an amount long enough to tempt one.
-const HISTORY_SPOTIFY: { expected: number; occurrences: OccurrenceState[] } = {
+const HISTORY_SPOTIFY: HistoryData = {
   expected: 11.99,
   occurrences: [
     { date: '2026-08-15', periodKey: '2026-08', state: 'unconfirmed', paidAmount: null, transactionId: null },
     { date: '2026-09-15', periodKey: '2026-09', state: 'confirmed', paidAmount: 11.99, transactionId: 't-sep' },
     { date: '2026-10-15', periodKey: '2026-10', state: 'upcoming', paidAmount: null, transactionId: null },
+  ],
+  orphaned: [],
+};
+
+// Oatly on Mondays, weekly, so the period is the exact date. The picker for October 5 is still
+// looking. Two payments are linked to dates that are not Mondays (the anchor moved by a day), so
+// they match no occurrence and are listed apart.
+const HISTORY_OATLY: HistoryData = {
+  expected: 24.5,
+  occurrences: [
+    { date: '2026-09-21', periodKey: '2026-09-21', state: 'unconfirmed', paidAmount: null, transactionId: null },
+    { date: '2026-09-28', periodKey: '2026-09-28', state: 'unconfirmed', paidAmount: null, transactionId: null },
+    { date: '2026-10-05', periodKey: '2026-10-05', state: 'unconfirmed', paidAmount: null, transactionId: null },
+    { date: '2026-10-12', periodKey: '2026-10-12', state: 'confirmed', paidAmount: 24.5, transactionId: 't-oat' },
+    { date: '2026-10-19', periodKey: '2026-10-19', state: 'upcoming', paidAmount: null, transactionId: null },
+  ],
+  orphaned: [
+    { transactionId: 't-x1', period: '2026-10-09', amount: 24.5 },
+    { transactionId: 't-x2', period: '2026-09-12', amount: 24.5 },
   ],
 };
 
@@ -148,9 +176,9 @@ const CANDIDATES: LinkCandidate[] = [
 const STATE_LABEL = { upcoming: 'Upcoming', confirmed: 'Confirmed', unconfirmed: 'Unconfirmed' } as const;
 
 function HistoryPanel({ data, picking = null, candidates = [] }: {
-  data: { expected: number; occurrences: OccurrenceState[] };
+  data: HistoryData;
   picking?: string | null;
-  candidates?: LinkCandidate[];
+  candidates?: LinkCandidate[] | null;
 }) {
   const busy = false;
   return (
@@ -164,8 +192,9 @@ function HistoryPanel({ data, picking = null, candidates = [] }: {
               <span className="block text-sm text-ink">
                 {formatDate(o.date, { month: 'short', day: 'numeric', year: 'numeric' })}
               </span>
-              {/* A word, not only a colour. */}
-              <span className="block text-[11px] text-ink-faint">{STATE_LABEL[o.state]}</span>
+              {/* A word, not only a colour — and not in the faintest ink
+                  available, since the state is the thing being read. */}
+              <span className="block text-[11px] text-ink-soft">{STATE_LABEL[o.state]}</span>
             </span>
             <span className="shrink-0 text-right">
               <span className="block text-sm font-semibold tabular-nums text-ink">
@@ -194,9 +223,13 @@ function HistoryPanel({ data, picking = null, candidates = [] }: {
               a focus-trap argument nobody wins. */}
           {picking === o.date && (
             <div className="pt-2 pl-1">
-              {candidates.length === 0 ? (
+              {candidates === null ? (
+                <p className="flex items-center gap-2 text-[11px] text-ink-faint">
+                  <Loader2 className="h-3 w-3 animate-spin" /> Looking…
+                </p>
+              ) : candidates.length === 0 ? (
                 <p className="text-[11px] text-ink-faint">
-                  No unlinked transactions within ten days of this date.
+                  No unlinked expense within ten days of this date.
                 </p>
               ) : (
                 candidates.map((c) => (
@@ -224,9 +257,162 @@ function HistoryPanel({ data, picking = null, candidates = [] }: {
           )}
         </div>
       ))}
+
+      {/* Links the series no longer has a period for — after the billing day
+          moved across a month, or the cycle changed. The spec calls this the
+          known ceiling and says it is fixed by re-linking; that is only true
+          if the stranded link can be found, because a linked transaction is
+          excluded from every candidate list. Unlink here, then link it where
+          it belongs. */}
+      {data.orphaned.length > 0 && (
+        <div className="pt-3">
+          <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-1">
+            No longer matches a payment date
+          </p>
+          {data.orphaned.map((o) => (
+            <div key={o.transactionId} className="flex items-center gap-3 border-t border-line py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm text-ink">
+                  {formatDate(o.period, { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+                <span className="block text-[11px] text-ink-soft">Linked to a date this subscription no longer bills on</span>
+              </span>
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">
+                {formatCurrency(o.amount)}
+              </span>
+              <button type="button" disabled={busy}
+                      className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink disabled:opacity-40">
+                Unlink
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
+// ---- Opening a subscription from the list ----------------------------------------------------
+// The dialog mounts SubscriptionHistory, which loads through getSubscriptionHistory. This page has
+// no session, so the real action redirects to /login and the browser leaves the harness about a
+// second after a row is opened. The script below answers the panel's four actions (history,
+// candidates, link, unlink) inside the page instead, from the list's own subscriptions and a few
+// fixture transactions, so a dialog opens, shows its payments and takes a link and an unlink with no
+// server. Nothing else is touched: Save, Pause, End and Delete still reach the real server and still
+// redirect, as they did before the panel existed.
+type StandInTx = {
+  id: string; date: string; merchant: string; amount: number; category: string;
+  subscriptionId: string | null; subscriptionPeriod: string | null;
+};
+const standInTx = (
+  id: string, date: string, merchant: string, amount: number, category: string,
+  subscriptionId: string | null = null, subscriptionPeriod: string | null = null,
+): StandInTx => ({ id, date, merchant, amount, category, subscriptionId, subscriptionPeriod });
+
+const STAND_IN_TX: StandInTx[] = [
+  // Linked. Spotify (1): May at a lower price, June as expected, and December, which is before its
+  // first payment date and so matches nothing. iCloud+ (2): July at a higher price, August as
+  // expected. Oatly (4): one payment on the 9th, which is not a Monday, so it matches nothing:
+  // unlink it and the 12th, three days away, offers it back.
+  standInTx('t-may', '2026-05-15', 'Spotify', 9.99, 'Entertainment', '1', '2026-05-15'),
+  standInTx('t-jun', '2026-06-16', 'Spotify', 11.99, 'Entertainment', '1', '2026-06-15'),
+  standInTx('t-dec', '2025-12-20', 'Spotify', 11.99, 'Entertainment', '1', '2025-12-20'),
+  standInTx('t-jul', '2026-07-31', 'Apple.com/bill', 3.49, 'Bills', '2', '2026-07-31'),
+  standInTx('t-aug', '2026-08-31', 'Apple.com/bill', 2.99, 'Bills', '2', '2026-08-31'),
+  standInTx('t-oat-old', '2026-10-09', 'Oatly delivery', 24.5, 'Groceries', '4', '2026-10-09'),
+  // Free. Around Spotify's August and September, and iCloud+'s September; nothing near the rest, so
+  // their pickers say so.
+  standInTx('t-c1', '2026-08-17', 'Spotify', 11.99, 'Entertainment'),
+  standInTx('t-c2', '2026-08-14', "Trader Joe's #412, 4 Union Square East, New York", 123456.78, 'Groceries'),
+  standInTx('t-c3', '2026-08-09', '网易云音乐', 12.5, 'Entertainment'),
+  standInTx('t-c4', '2026-09-14', 'Spotify', 13.99, 'Entertainment'),
+  standInTx('t-c5', '2026-09-29', 'Apple.com/bill', 2.99, 'Bills'),
+];
+
+// Each subscription's whole series up to its next occurrence, from the real schedule.
+const standInSeries = (s: ListItem) =>
+  occurrencesBetween(s, s.anchorDate, nextOccurrence(s, TODAY, TODAY) ?? TODAY, TODAY);
+
+const STAND_IN = {
+  today: TODAY,
+  series: Object.fromEntries(
+    ITEMS.map((s) => [s.id, { expected: s.amount, cycle: s.cycle, dates: standInSeries(s) }]),
+  ),
+  transactions: STAND_IN_TX,
+};
+
+// Plain ES5 on purpose, and no backslashes: it is serialised into the page as text. It answers what
+// the real actions would, to the same contract: the last twelve occurrences with a state each, plus
+// the links whose period matches nothing in the series; candidates within ten days that are not
+// linked, newest first; a link; an unlink. A single-argument call that is not a transaction id is the
+// panel's own load only the first time its action id is seen, which is how a later Delete, whose
+// arguments look the same, is told apart and left to the real server.
+const STAND_IN_SCRIPT = `(function (data) {
+  if (window.__historyStandIn) return;
+  window.__historyStandIn = data;
+  var realFetch = window.fetch.bind(window);
+  var tx = data.transactions;
+  var historyAction = null;
+  var key = function (cycle, d) { return cycle === 'monthly' ? d.slice(0, 7) : cycle === 'yearly' ? d.slice(0, 4) : d; };
+  var apart = function (a, b) {
+    return Math.round((Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8)) - Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8))) / 864e5);
+  };
+  var isDate = function (s) { return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s); };
+
+  function history(id) {
+    var s = data.series[id];
+    var mine = tx.filter(function (t) { return t.subscriptionId === id && t.subscriptionPeriod; });
+    var paid = {};
+    mine.forEach(function (t) { paid[key(s.cycle, t.subscriptionPeriod)] = t; });
+    var live = {};
+    s.dates.forEach(function (d) { live[key(s.cycle, d)] = true; });
+    return {
+      today: data.today,
+      expected: s.expected,
+      occurrences: s.dates.slice(-12).map(function (d) {
+        var hit = paid[key(s.cycle, d)];
+        return { date: d, periodKey: key(s.cycle, d), state: hit ? 'confirmed' : d >= data.today ? 'upcoming' : 'unconfirmed', paidAmount: hit ? hit.amount : null, transactionId: hit ? hit.id : null };
+      }),
+      orphaned: mine.filter(function (t) { return !live[key(s.cycle, t.subscriptionPeriod)]; })
+        .map(function (t) { return { transactionId: t.id, period: t.subscriptionPeriod, amount: t.amount }; }),
+    };
+  }
+  function candidates(date) {
+    return tx.filter(function (t) { return !t.subscriptionId && Math.abs(apart(t.date, date)) <= 10; })
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 25)
+      .map(function (t) { return { id: t.id, date: t.date, merchant: t.merchant, amount: t.amount, category: t.category }; });
+  }
+  function link(tid, sid, period) {
+    var t = tx.filter(function (x) { return x.id === tid; })[0];
+    if (!data.series[sid]) return { success: false, error: 'Subscription not found' };
+    if (!t) return { success: false, error: 'Transaction not found' };
+    t.subscriptionId = sid;
+    t.subscriptionPeriod = period;
+    return { success: true };
+  }
+  function unlink(tid) {
+    tx.forEach(function (t) { if (t.id === tid) { t.subscriptionId = null; t.subscriptionPeriod = null; } });
+    return { success: true };
+  }
+
+  window.fetch = function (input, init) {
+    var h = init && init.headers;
+    var id = h && (h['next-action'] || h['Next-Action']);
+    if (!id || init.method !== 'POST' || typeof init.body !== 'string') return realFetch(input, init);
+    var args;
+    try { args = JSON.parse(init.body); } catch (e) { return realFetch(input, init); }
+    var strings = args.length > 0 && args.every(function (a) { return typeof a === 'string'; });
+    var value;
+    if (strings && args.length === 3 && isDate(args[2])) value = link(args[0], args[1], args[2]);
+    else if (strings && args.length === 2 && isDate(args[1])) value = candidates(args[1]);
+    else if (strings && args.length === 1 && /^t-/.test(args[0])) value = unlink(args[0]);
+    else if (strings && args.length === 1 && data.series[args[0]] && (historyAction === null || historyAction === id)) { historyAction = id; value = history(args[0]); }
+    else return realFetch(input, init);
+    var root = JSON.stringify({ a: '$@1', f: '', b: 'development', q: '', i: false });
+    var nl = String.fromCharCode(10);
+    return Promise.resolve(new Response('0:' + root + nl + '1:' + JSON.stringify(value) + nl, { status: 200, headers: { 'content-type': 'text/x-component' } }));
+  };
+})(${JSON.stringify(STAND_IN)});`;
 
 export default async function DevPreview({
   searchParams,
@@ -312,18 +498,20 @@ export default async function DevPreview({
       <section id="history" className="pt-10">
         <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-3">Payments panel</p>
         {[
-          { name: 'iCloud+', data: HISTORY_ICLOUD, picking: null },
-          { name: 'Spotify', data: HISTORY_SPOTIFY, picking: '2026-08-15' },
+          { name: 'iCloud+', data: HISTORY_ICLOUD, picking: null, candidates: [] },
+          { name: 'Spotify', data: HISTORY_SPOTIFY, picking: '2026-08-15', candidates: CANDIDATES },
+          { name: 'Oatly delivery', data: HISTORY_OATLY, picking: '2026-10-05', candidates: null },
         ].map((f) => (
           <div
             key={f.name}
             className="mb-6 grid gap-4 overflow-y-auto rounded-3xl bg-paper-card p-6 max-lg:-mx-6 max-lg:rounded-none lg:max-w-md"
           >
             <p className="pr-6 text-base font-bold tracking-tight">{f.name}</p>
-            <HistoryPanel data={f.data} picking={f.picking} candidates={f.picking ? CANDIDATES : []} />
+            <HistoryPanel data={f.data} picking={f.picking} candidates={f.candidates} />
           </div>
         ))}
       </section>
+      <Script id="history-stand-in" strategy="afterInteractive" dangerouslySetInnerHTML={{ __html: STAND_IN_SCRIPT }} />
     </div>
   );
 }
