@@ -383,7 +383,9 @@ export interface MonthOccurrences {
   /** Keyed by full "YYYY-MM-DD". Days with nothing on them are absent. */
   byDay: Record<string, DayOccurrence[]>;
   expected: number;
-  /** From today to the end of the month. Meaningless for a past month. */
+  /** Still to pay between today and the end of the month: future occurrences
+   *  with nothing linked. A charge already taken and linked is not remaining,
+   *  whatever its date says. Meaningless for a past month. */
   remaining: number;
   isPastMonth: boolean;
 }
@@ -396,11 +398,13 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   // produce "2026-13-01", which is not a date.
   let year = Number(monthKey?.slice(0, 4));
   let month = Number(monthKey?.slice(5, 7));
-  // Defence in depth, both halves, and neither is about string order any
-  // more — makeCalendarDate pads the year. The lower bound is about Date.UTC,
-  // which reads years 0 to 99 as 1900 to 1999, so "0050-01" would quietly
-  // become 1950. The upper bound keeps every date this builds inside four
-  // digits, past which the string ordering inverts.
+  // Defence in depth, and the two halves guard different things. The lower
+  // bound is not about string order — makeCalendarDate pads the year now. It
+  // is partly Date.UTC, which reads years 0 to 99 as 1900 to 1999 so
+  // "0050-01" would quietly become 1950, and partly that `key` below and
+  // `shiftMonth` in the calendar both build "YYYY-MM" by hand without
+  // padding, so a three-digit year yields a key its own shape check rejects.
+  // The upper bound is about string order: past four digits it inverts.
   if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12)
       || !(year >= 1000 && year < 9999)) {
     year = Number(today.slice(0, 4));

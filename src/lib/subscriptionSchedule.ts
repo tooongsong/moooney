@@ -77,8 +77,9 @@ export function occurrencesBetween(
     // leans on this module's one load-bearing assumption: that zero-padded
     // dates compare chronologically as strings. That assumption dies at year
     // 10000, where "10000-01-07" <= "9999-12-31" is true because "1" sorts
-    // before "9" — so the loop never ends. A weekly subscription anchored in
-    // 9999 built 4.7 million dates and 1.9GB before anyone saw a page.
+    // before "9". A loop ending on that compare runs to year 99990: anchored
+    // in 9999 it built 4.7 million dates and 1.9GB, 1.65 seconds on every
+    // page load, for five real occurrences.
     //
     // Integer bounds cannot run away regardless of what the strings do.
     const kStart = Math.max(0, Math.ceil(daysBetween(sub.anchorDate, lo) / 7));
