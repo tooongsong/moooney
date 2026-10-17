@@ -3473,7 +3473,7 @@ The harness is reached the same way as in Task 7 — `dev-preview` is already ex
   - `getSubscriptionHistory(id: string): Promise<{ today: CalendarDate; expected: number; occurrences: OccurrenceState[]; orphaned: OrphanedLink[] } | null>`
   - `const LINK_CANDIDATE_LIMIT = 25`, exported from `@/lib/subscriptionSchedule` — a `'use server'` file may export only async functions
   - `interface LinkCandidate { id: string; date: CalendarDate; merchant: string; amount: number; category: string }`
-  - `getLinkCandidates(subscriptionId: string, date: string): Promise<LinkCandidate[]>`
+  - `getLinkCandidates(date: string): Promise<LinkCandidate[]>`
   - `linkTransaction(transactionId: string, subscriptionId: string, period: string): Promise<{ success: boolean; error?: string }>`
   - `unlinkTransaction(transactionId: string): Promise<{ success: boolean; error?: string }>`
   - `<SubscriptionHistory subscriptionId={string} />`
@@ -3585,10 +3585,7 @@ export interface LinkCandidate {
 }
 
 /** Transactions near an occurrence that are not already claimed by something. */
-export async function getLinkCandidates(
-  subscriptionId: string,
-  date: string,
-): Promise<LinkCandidate[]> {
+export async function getLinkCandidates(date: string): Promise<LinkCandidate[]> {
   const user = await getUser();
   let anchor: CalendarDate;
   try {
@@ -3764,7 +3761,7 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
     setPicking(o.date);
     setCandidates('loading');
     try {
-      const rows = await getLinkCandidates(subscriptionId, o.date);
+      const rows = await getLinkCandidates(o.date);
       if (seq === pickSeq.current) setCandidates(rows);
     } catch (error) {
       unstable_rethrow(error);

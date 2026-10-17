@@ -596,10 +596,7 @@ export interface LinkCandidate {
 }
 
 /** Transactions near an occurrence that are not already claimed by something. */
-export async function getLinkCandidates(
-  subscriptionId: string,
-  date: string,
-): Promise<LinkCandidate[]> {
+export async function getLinkCandidates(date: string): Promise<LinkCandidate[]> {
   const user = await getUser();
   let anchor: CalendarDate;
   try {

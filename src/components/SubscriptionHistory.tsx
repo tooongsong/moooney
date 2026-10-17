@@ -57,7 +57,7 @@ export function SubscriptionHistory({ subscriptionId }: { subscriptionId: string
     setPicking(o.date);
     setCandidates('loading');
     try {
-      const rows = await getLinkCandidates(subscriptionId, o.date);
+      const rows = await getLinkCandidates(o.date);
       if (seq === pickSeq.current) setCandidates(rows);
     } catch (error) {
       unstable_rethrow(error);
