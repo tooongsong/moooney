@@ -3468,7 +3468,7 @@ The harness is reached the same way as in Task 7 — `dev-preview` is already ex
 
 - [ ] **Step 1: Add the actions**
 
-Append to `src/app/actions/subscriptions.ts`. Add `addDays` to the `@/lib/dates` import, and `desc` to the drizzle one — Task 7 left it out because nothing there used it, and `getLinkCandidates` below is the first caller.
+Append to `src/app/actions/subscriptions.ts`. Add `addDays` to the `@/lib/dates` import, and `LINK_CANDIDATE_LIMIT` and `occurrenceState` to the schedule one. The drizzle import needs nothing new: the candidate ordering ends up on `asc`, which is already there.
 
 ```ts
 /** A link whose period answers to no occurrence in the series any more. */
@@ -4138,15 +4138,14 @@ Expected: five tables, all `rowsecurity: true`, each with its own policy, `subsc
 - [ ] **Step 9: Commit and push**
 
 ```bash
-git add -A
-git commit -m "Remove the subscriptions preview harness
-
-It existed because the in-app browser has no session. The feature is now
-verifiable against the real signed-in pages, so it has no reason to stay."
-git push origin main
+git add src/ supabase/ docs/ package.json
 ```
 
-Vercel deploys `main` to `moooney.tooong.com` on push. After it goes out, open the live site on a phone and on a desktop and repeat Step 2's comparison against production data — the one rule is worth checking twice.
+Then commit, with a body saying the harness existed because the in-app browser has no session, and the proxy exemption existed only to reach it, so both go together.
+
+`git add -A` would sweep in three untracked `public/sw N.js` sync-conflict copies that are no part of this work. Name the directories instead.
+
+**Do not push.** The work lives on `worktree-subscriptions`, and `main` is 86 commits behind it, so pushing `main` would send a handful of doc commits and none of the feature. Merging and pushing is the user's decision and the user's command. Vercel deploys `main` to `moooney.tooong.com` the moment it lands, and nobody has yet seen any of this signed in.
 
 ## Self-review
 
