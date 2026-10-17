@@ -7,7 +7,7 @@ import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 import { monthRange } from '@/lib/dates';
 import { occurrencesBetween, relativeDayLabel } from '@/lib/subscriptionSchedule';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
-import type { MonthOccurrences, UpcomingOccurrence } from '@/app/actions/subscriptions';
+import type { LinkCandidate, MonthOccurrences, OccurrenceState, UpcomingOccurrence } from '@/app/actions/subscriptions';
 
 // A folder named with a leading underscore is private in Next.js and never
 // routes at all — hence "dev-preview". Gated so it cannot ship.
@@ -102,6 +102,132 @@ const MONTHS: MonthOccurrences[] = [
   monthFrom31st(2028, 2, null),
 ];
 
+// ---- SubscriptionHistory, as the dialog shows it once loaded -----------------
+// Hand-typed OccurrenceState values: the component fetches through a server action and this
+// page has no session. A list always ends at the *next* occurrence, which is today for one
+// subscription and a later date for another, never both. Hence two.
+
+// iCloud+ on the 31st, $2.99 expected. Newest first, as the component lists them:
+//   Oct 31  Upcoming     after today, nothing to do yet          no Link control
+//   Sep 30  Unconfirmed  in the past, nothing linked             Link
+//   Aug 31  Confirmed    paid what was expected                  one amount
+//   Jul 31  Confirmed    paid $3.49, so the price rose           the actual, with "expected" beneath
+const HISTORY_ICLOUD: { expected: number; occurrences: OccurrenceState[] } = {
+  expected: 2.99,
+  occurrences: [
+    { date: '2026-06-30', periodKey: '2026-06', state: 'unconfirmed', paidAmount: null, transactionId: null },
+    { date: '2026-07-31', periodKey: '2026-07', state: 'confirmed', paidAmount: 3.49, transactionId: 't-jul' },
+    { date: '2026-08-31', periodKey: '2026-08', state: 'confirmed', paidAmount: 2.99, transactionId: 't-aug' },
+    { date: '2026-09-30', periodKey: '2026-09', state: 'unconfirmed', paidAmount: null, transactionId: null },
+    { date: '2026-10-31', periodKey: '2026-10', state: 'upcoming', paidAmount: null, transactionId: null },
+  ],
+};
+
+// Spotify on the 15th, $11.99. The 15th of October is today, so it reads Upcoming: a charge
+// dated today may not have landed yet. August's picker is open, with a merchant long enough to
+// need its ellipsis and an amount long enough to tempt one.
+const HISTORY_SPOTIFY: { expected: number; occurrences: OccurrenceState[] } = {
+  expected: 11.99,
+  occurrences: [
+    { date: '2026-08-15', periodKey: '2026-08', state: 'unconfirmed', paidAmount: null, transactionId: null },
+    { date: '2026-09-15', periodKey: '2026-09', state: 'confirmed', paidAmount: 11.99, transactionId: 't-sep' },
+    { date: '2026-10-15', periodKey: '2026-10', state: 'upcoming', paidAmount: null, transactionId: null },
+  ],
+};
+
+const CANDIDATES: LinkCandidate[] = [
+  { id: 'c-1', date: '2026-08-17', merchant: 'Spotify', amount: 11.99, category: 'Entertainment' },
+  { id: 'c-2', date: '2026-08-14', merchant: "Trader Joe's #412, 4 Union Square East, New York", amount: 123456.78, category: 'Groceries' },
+  { id: 'c-3', date: '2026-08-09', merchant: '网易云音乐', amount: 12.5, category: 'Entertainment' },
+];
+
+// What SubscriptionHistory renders once its data has loaded, minus the click handlers, which a
+// server component cannot carry. The classes, the order and the words are the component's own,
+// lifted from its source by script and checked against it, so the fixtures above are read
+// through the markup that ships.
+const STATE_LABEL = { upcoming: 'Upcoming', confirmed: 'Confirmed', unconfirmed: 'Unconfirmed' } as const;
+
+function HistoryPanel({ data, picking = null, candidates = [] }: {
+  data: { expected: number; occurrences: OccurrenceState[] };
+  picking?: string | null;
+  candidates?: LinkCandidate[];
+}) {
+  const busy = false;
+  return (
+    <div className="pt-1 min-w-0">
+      <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-1">Payments</p>
+      {/* Newest first: the ones you are most likely to be confirming. */}
+      {[...data.occurrences].reverse().map((o) => (
+        <div key={o.date} className="border-t border-line py-2">
+          <div className="flex items-center gap-3">
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm text-ink">
+                {formatDate(o.date, { month: 'short', day: 'numeric', year: 'numeric' })}
+              </span>
+              {/* A word, not only a colour. */}
+              <span className="block text-[11px] text-ink-faint">{STATE_LABEL[o.state]}</span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="block text-sm font-semibold tabular-nums text-ink">
+                {formatCurrency(o.paidAmount ?? data.expected)}
+              </span>
+              {o.paidAmount !== null && o.paidAmount !== data.expected && (
+                <span className="block text-[10px] tabular-nums text-ink-faint">
+                  expected {formatCurrency(data.expected)}
+                </span>
+              )}
+            </span>
+            {o.state === 'confirmed' ? (
+              <button type="button" disabled={busy}
+                      className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink disabled:opacity-40">
+                Unlink
+              </button>
+            ) : o.state === 'unconfirmed' ? (
+              <button type="button" disabled={busy}
+                      className="shrink-0 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink disabled:opacity-40">
+                Link
+              </button>
+            ) : null}
+          </div>
+
+          {/* Inline rather than a second dialog: a dialog inside a dialog is
+              a focus-trap argument nobody wins. */}
+          {picking === o.date && (
+            <div className="pt-2 pl-1">
+              {candidates.length === 0 ? (
+                <p className="text-[11px] text-ink-faint">
+                  No unlinked transactions within ten days of this date.
+                </p>
+              ) : (
+                candidates.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    disabled={busy}
+                    className="w-full flex items-center gap-3 py-1.5 text-left disabled:opacity-40"
+                  >
+                    <span className="text-[11px] tabular-nums text-ink-faint shrink-0">
+                      {formatDate(c.date, { month: 'short', day: 'numeric' })}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-ink">{c.merchant}</span>
+                    <span className="shrink-0 text-[11px] font-semibold tabular-nums text-ink">
+                      {formatCurrency(c.amount)}
+                    </span>
+                  </button>
+                ))
+              )}
+              <button type="button"
+                      className="pt-1 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink">
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default async function DevPreview({
   searchParams,
 }: {
@@ -179,6 +305,25 @@ export default async function DevPreview({
           ))}
         </div>
       </div>
+
+      {/* SubscriptionHistory's loaded state, in a frame that mirrors the dialog's own: a grid with a
+          16px gap, 24px of padding, 400px of content at desktop width, and overflow-y-auto, which
+          turns any sideways overflow into a scroll bar inside the frame. */}
+      <section id="history" className="pt-10">
+        <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-3">Payments panel</p>
+        {[
+          { name: 'iCloud+', data: HISTORY_ICLOUD, picking: null },
+          { name: 'Spotify', data: HISTORY_SPOTIFY, picking: '2026-08-15' },
+        ].map((f) => (
+          <div
+            key={f.name}
+            className="mb-6 grid gap-4 overflow-y-auto rounded-3xl bg-paper-card p-6 max-lg:-mx-6 max-lg:rounded-none lg:max-w-md"
+          >
+            <p className="pr-6 text-base font-bold tracking-tight">{f.name}</p>
+            <HistoryPanel data={f.data} picking={f.picking} candidates={f.picking ? CANDIDATES : []} />
+          </div>
+        ))}
+      </section>
     </div>
   );
 }
