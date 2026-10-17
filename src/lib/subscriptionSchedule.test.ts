@@ -283,6 +283,9 @@ test('a link confirms an occurrence; a date never does', () => {
   assert.equal(occurrenceState(false, '2026-11-05', T), 'upcoming');
   // Today is upcoming, not unconfirmed: the charge may not have landed.
   assert.equal(occurrenceState(false, T, T), 'upcoming');
+  // And the day before today is not. Without this the rule could grant an
+  // arbitrary grace period and no test would notice.
+  assert.equal(occurrenceState(false, '2026-10-14', T), 'unconfirmed');
 });
 
 test('relative day labels read like a person would say them', () => {

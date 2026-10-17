@@ -167,7 +167,7 @@ export function SubscriptionCalendar({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-ink">{o.name}</span>
                 {/* The state always carries a word, not only a colour. */}
-                <span className="block text-[11px] text-ink-faint">{STATE_LABEL[o.state]}</span>
+                <span className="block text-[11px] text-ink-soft">{STATE_LABEL[o.state]}</span>
               </span>
               <span className="shrink-0 text-right">
                 <span className="block text-sm font-bold tabular-nums text-ink">

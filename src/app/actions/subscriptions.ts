@@ -1,7 +1,7 @@
 'use server';
 
 import { randomUUID } from 'crypto';
-import { and, asc, desc, eq, exists, gte, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, exists, gte, isNull, lte, or, sql } from 'drizzle-orm';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
@@ -454,6 +454,7 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   for (const s of rows) {
     for (const date of occurrencesBetween(s, first, last, today)) {
       const hit = paid.get(`${s.id}|${periodKeyOf(s.cycle, date)}`);
+      const state = occurrenceState(Boolean(hit), date, today);
       (byDay[date] ??= []).push({
         subscriptionId: s.id,
         name: s.name,
@@ -461,14 +462,18 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
         amount: s.amount,
         cycle: s.cycle,
         date,
-        state: occurrenceState(Boolean(hit), date, today),
+        state,
         paidAmount: hit ? hit.amount : null,
       });
       expected += s.amount;
       // Not merely still to come — still to *pay*. A charge dated the 19th
       // that was taken on the 14th and linked is confirmed, and counting it
       // as remaining would overstate what the rest of the month costs.
-      if (date >= today && !hit) remaining += s.amount;
+      //
+      // Asked of occurrenceState rather than spelled out again: `date >=
+      // today && !hit` is the same boundary in different words, sitting two
+      // lines from the call, and if the rule ever moves they would disagree.
+      if (state === 'upcoming') remaining += s.amount;
     }
   }
 
@@ -609,9 +614,12 @@ export async function getLinkCandidates(
     // drops the older half of the window, which is where a charge posted on
     // or before the stated day lives. The one transaction most likely to be
     // the right one was the one being cut.
-    // id last: same-day rows tie on both keys above, and without a final one
-    // which of them survives the cap is whatever order Postgres returns.
-    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, desc(transactions.date), asc(transactions.id)],
+    // Then the earlier day, not the later one: at equal distance a charge
+    // posted the day *before* the stated date is the likelier match, which
+    // is the same reasoning that put distance first. Then the id, because
+    // same-day rows tie on both keys above and without a final one which of
+    // them survives the cap is whatever order Postgres returns.
+    orderBy: [sql`abs(${transactions.date} - ${anchor}::date)`, asc(transactions.date), asc(transactions.id)],
     limit: LINK_CANDIDATE_LIMIT,
   });
 
@@ -653,6 +661,10 @@ export async function linkTransaction(
         eq(transactions.id, transactionId),
         eq(transactions.userId, user.id),
         isNull(transactions.subscriptionId),
+        // The picker only offers expenses, but the picker is a read filter
+        // and this is the write. A crafted call could otherwise confirm an
+        // occurrence against money that came in.
+        eq(transactions.type, 'expense'),
       ))
       .returning({ id: transactions.id });
     if (res.length === 0) {
