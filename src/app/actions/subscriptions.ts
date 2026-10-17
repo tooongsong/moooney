@@ -13,6 +13,7 @@ import {
   monthlyEquivalent,
   nextOccurrence,
   occurrencesBetween,
+  occurrenceState,
   periodKeyOf,
   SUBSCRIPTION_CYCLES,
   SUBSCRIPTION_STATUSES,
@@ -459,9 +460,7 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
         amount: s.amount,
         cycle: s.cycle,
         date,
-        // Today counts as upcoming: the charge may not have landed yet, and
-        // calling it unconfirmed would be an accusation, not a fact.
-        state: hit ? 'confirmed' : date >= today ? 'upcoming' : 'unconfirmed',
+        state: occurrenceState(Boolean(hit), date, today),
         paidAmount: hit ? hit.amount : null,
       });
       expected += s.amount;
@@ -559,7 +558,7 @@ export async function getSubscriptionHistory(id: string): Promise<{
     return {
       date,
       periodKey: key,
-      state: (hit ? 'confirmed' : date >= today ? 'upcoming' : 'unconfirmed') as OccurrenceState['state'],
+      state: occurrenceState(Boolean(hit), date, today),
       paidAmount: hit ? hit.amount : null,
       transactionId: hit ? hit.id : null,
     };

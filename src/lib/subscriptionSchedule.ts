@@ -160,6 +160,29 @@ export function monthlyEquivalent(amount: number, cycle: SubscriptionCycle): num
   return amount;
 }
 
+export type OccurrenceStateName = 'upcoming' | 'confirmed' | 'unconfirmed';
+
+/**
+ * What an occurrence's state is, given whether a payment is linked to it.
+ *
+ * The rule the whole feature rests on, in one place: a date is never
+ * evidence. Only a link confirms. Today counts as upcoming, because a charge
+ * dated today may simply not have landed yet, and calling it unconfirmed
+ * would be an accusation rather than a fact.
+ *
+ * Three surfaces render this — the calendar, the history panel and the
+ * preview harness — and the calendar's own comment already warns what
+ * happens when two views of one payment disagree.
+ */
+export function occurrenceState(
+  linked: boolean,
+  date: CalendarDate,
+  today: CalendarDate,
+): OccurrenceStateName {
+  if (linked) return 'confirmed';
+  return date >= today ? 'upcoming' : 'unconfirmed';
+}
+
 /** "in 4 days" / "yesterday". Pairs with the absolute date, never replaces it:
  *  "in 4 days" alone is useless a week later on a screenshot. */
 export function relativeDayLabel(days: number): string {

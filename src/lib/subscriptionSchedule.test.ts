@@ -5,6 +5,7 @@ import {
   nextOccurrence,
   periodKeyOf,
   monthlyEquivalent,
+  occurrenceState,
   relativeDayLabel,
   type Schedulable,
 } from './subscriptionSchedule.ts';
@@ -269,6 +270,19 @@ test('a yearly amount normalises to a twelfth', () => {
 test('a weekly amount normalises by the average month, not by four weeks', () => {
   // 365.25 / 7 / 12 = 4.348214…, so $10/week is $43.48/month, not $40.
   assert.ok(Math.abs(monthlyEquivalent(10, 'weekly') - 43.48) < 0.01);
+});
+
+test('a link confirms an occurrence; a date never does', () => {
+  const T = '2026-10-15';
+  // Linked, whatever the date says.
+  assert.equal(occurrenceState(true, '2026-09-05', T), 'confirmed');
+  assert.equal(occurrenceState(true, '2026-11-05', T), 'confirmed');
+  // Unlinked and past: unconfirmed, never "paid" and never "missed".
+  assert.equal(occurrenceState(false, '2026-09-05', T), 'unconfirmed');
+  // Unlinked and future: upcoming.
+  assert.equal(occurrenceState(false, '2026-11-05', T), 'upcoming');
+  // Today is upcoming, not unconfirmed: the charge may not have landed.
+  assert.equal(occurrenceState(false, T, T), 'upcoming');
 });
 
 test('relative day labels read like a person would say them', () => {
