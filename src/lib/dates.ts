@@ -9,6 +9,13 @@
  * So a date stays a "YYYY-MM-DD" string from the database to the screen and
  * back. No Date object ever touches it, so nothing can shift it.
  *
+ * Zero-padding is what makes `<` and `>` on these strings chronological, and
+ * that holds for years 1000 to 9999 only. `toCalendarDate` accepts any four
+ * digits, but `makeCalendarDate` does not pad the year, so below 1000 it
+ * builds "999-05-01", which sorts after "2026-01-01". Above 9999 the order
+ * silently inverts: "10000-01-01" sorts before "9999-12-31". Several
+ * comparisons across the app rest on this.
+ *
  * A timezone is needed for exactly one question — what is *today* — and that is
  * the user's configured zone, never the server's.
  */

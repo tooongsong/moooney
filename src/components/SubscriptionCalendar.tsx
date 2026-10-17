@@ -30,7 +30,11 @@ export function SubscriptionCalendar({
   /** True on the phone's calendar tab, so month navigation stays on it. */
   preserveView: boolean;
 }) {
-  const [openDay, setOpenDay] = useState<string | null>(null);
+  // The day and the open flag are separate on purpose. Keyed off one value,
+  // closing the sheet empties it instantly and you watch a blank panel run
+  // through its 200ms exit animation.
+  const [day, setDay] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   const href = (monthKey: string) =>
     preserveView
@@ -41,7 +45,7 @@ export function SubscriptionCalendar({
   const total = daysInMonth(data.year, data.month);
   const days = Array.from({ length: total }, (_, i) => makeCalendarDate(data.year, data.month, i + 1));
 
-  const dayItems = openDay ? (data.byDay[openDay] ?? []) : [];
+  const dayItems = day ? (data.byDay[day] ?? []) : [];
 
   return (
     <section>
@@ -50,11 +54,15 @@ export function SubscriptionCalendar({
           {MONTH_NAMES[data.month - 1]} {data.year}
         </p>
         <div className="flex items-center gap-1">
-          <Link href={href(shiftMonth(data.year, data.month, -1))} aria-label="Previous month"
+          {/* scroll={false}: after a Link navigation Next resets the scroll
+              position whenever the page root is scrolled at all, and on the
+              phone this calendar sits ~530px down. Without it, stepping
+              through months throws you back to the top every time. */}
+          <Link href={href(shiftMonth(data.year, data.month, -1))} aria-label="Previous month" scroll={false}
                 className="min-h-9 min-w-9 flex items-center justify-center text-ink-faint hover:text-ink transition-colors">
             <ChevronLeft className="h-4 w-4" strokeWidth={1.75} />
           </Link>
-          <Link href={href(shiftMonth(data.year, data.month, 1))} aria-label="Next month"
+          <Link href={href(shiftMonth(data.year, data.month, 1))} aria-label="Next month" scroll={false}
                 className="min-h-9 min-w-9 flex items-center justify-center text-ink-faint hover:text-ink transition-colors">
             <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
           </Link>
@@ -100,7 +108,7 @@ export function SubscriptionCalendar({
                     `${items.length} ${items.length === 1 ? 'charge' : 'charges'}`
                   : undefined
               }
-              onClick={() => setOpenDay(date)}
+              onClick={() => { setDay(date); setOpen(true); }}
               className={cn(
                 // rounded-lg, not xl: this theme maps lg to 16px, which is on
                 // the 16/24/pill scale, and xl to 20px, which is not — and at a
@@ -138,7 +146,7 @@ export function SubscriptionCalendar({
         })}
       </div>
 
-      <Dialog open={openDay !== null} onOpenChange={(next) => { if (!next) setOpenDay(null); }}>
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           showCloseButton={false}
           className="
@@ -151,7 +159,7 @@ export function SubscriptionCalendar({
           "
         >
           <DialogTitle className="text-base font-bold tracking-tight">
-            {openDay ? formatDate(openDay, { weekday: 'long', month: 'long', day: 'numeric' }) : ''}
+            {day ? formatDate(day, { weekday: 'long', month: 'long', day: 'numeric' }) : ''}
           </DialogTitle>
           {dayItems.map((o) => (
             <div key={o.subscriptionId} className="flex items-center gap-3 py-2 border-t border-line">

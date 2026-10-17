@@ -7,7 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { paymentMethods, subscriptions, transactions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
-import { daysBetween, monthRange, safeTimeZone, toCalendarDate, todayIn, type CalendarDate } from '@/lib/dates';
+import { daysBetween, monthRange, safeTimeZone, toCalendarDate, todayIn, yearRange, type CalendarDate } from '@/lib/dates';
 import { isSingleGrapheme } from '@/lib/utils';
 import {
   monthlyEquivalent,
@@ -396,12 +396,12 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   // produce "2026-13-01", which is not a date.
   let year = Number(monthKey?.slice(0, 4));
   let month = Number(monthKey?.slice(5, 7));
-  // The year bounds are not pedantry. makeCalendarDate does not pad the year,
-  // so "0001-05" survives the shape check and produces "1-05-01", which is
-  // not a date any column will accept. At the other end, 9999-12 lets a weekly
-  // series step into year 10000, where comparing dates as strings stops being
-  // chronological: it returns 4.7 million dates instead of five.
-  if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12) || !(year >= 1000 && year < 9999)) {
+  // Defence in depth, both halves. makeCalendarDate does not pad the year,
+  // so "0001-05" survives the shape check and produces "1-05-01", which no
+  // column accepts; and the upper bound keeps every date this builds inside
+  // the four-digit range where comparing them as strings is sound.
+  if (!/^\d{4}-\d{2}$/.test(monthKey ?? '') || !(month >= 1 && month <= 12)
+      || !(year >= 1000 && year < 9999)) {
     year = Number(today.slice(0, 4));
     month = Number(today.slice(5, 7));
   }
@@ -410,13 +410,23 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
 
   const rows = await loadRows(user.id);
 
-  // Links whose period falls in this month. Four small columns, bounded by the
-  // month — not every link ever made.
+  // Links whose period could match something in this month. Four small
+  // columns, bounded — not every link ever made.
+  //
+  // A yearly subscription matches by year, so its link can carry any date in
+  // the year and still belong to this month's occurrence: edit the renewal
+  // from March to May after March was paid, and a month-bounded query would
+  // never see the March link, so May would read Unconfirmed here while Task
+  // 8's history read Confirmed. Two views of one payment disagreeing is worse
+  // than a slightly wider query.
+  const hasYearly = rows.some((s) => s.cycle === 'yearly');
+  const [linkFrom, linkTo] = hasYearly ? yearRange(year) : [first, last];
+
   const links = await db.query.transactions.findMany({
     where: and(
       eq(transactions.userId, user.id),
-      gte(transactions.subscriptionPeriod, first),
-      lte(transactions.subscriptionPeriod, last),
+      gte(transactions.subscriptionPeriod, linkFrom),
+      lte(transactions.subscriptionPeriod, linkTo),
     ),
     columns: { id: true, amount: true, subscriptionId: true, subscriptionPeriod: true },
   });
@@ -450,7 +460,10 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
         paidAmount: hit ? hit.amount : null,
       });
       expected += s.amount;
-      if (date >= today) remaining += s.amount;
+      // Not merely still to come — still to *pay*. A charge dated the 19th
+      // that was taken on the 14th and linked is confirmed, and counting it
+      // as remaining would overstate what the rest of the month costs.
+      if (date >= today && !hit) remaining += s.amount;
     }
   }
 
