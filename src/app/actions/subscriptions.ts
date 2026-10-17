@@ -484,6 +484,13 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
   };
 }
 
+/** A link whose period answers to no occurrence in the series any more. */
+export interface OrphanedLink {
+  transactionId: string;
+  period: CalendarDate;
+  amount: number;
+}
+
 export interface OccurrenceState {
   date: CalendarDate;
   periodKey: string;
@@ -493,7 +500,7 @@ export interface OccurrenceState {
 }
 
 /**
- * The last twelve occurrences plus the next one, each with its state.
+ * The last twelve occurrences, each with its state, plus any stranded links.
  *
  * Computed over the whole series rather than a rolling window: for a monthly
  * subscription five years old that is sixty string comparisons, which costs
@@ -504,6 +511,7 @@ export async function getSubscriptionHistory(id: string): Promise<{
   today: CalendarDate;
   expected: number;
   occurrences: OccurrenceState[];
+  orphaned: OrphanedLink[];
 } | null> {
   const user = await getUser();
   const today = todayIn(safeTimeZone(user.user_metadata?.timezone as string | undefined));
@@ -531,6 +539,20 @@ export async function getSubscriptionHistory(id: string): Promise<{
              { id: l.id, amount: toNum(l.amount, 'amount') });
   }
 
+  // Moving the anchor across a month, or changing the cycle, can leave a link
+  // pointing at a period the series no longer has. The spec calls that the
+  // known ceiling and says it is "fixed by re-linking" — which is only true
+  // if the stranded link is visible somewhere, because a linked transaction
+  // is excluded from every candidate list. So surface them.
+  const liveKeys = new Set(all.map((d) => periodKeyOf(row.cycle, d)));
+  const orphaned: OrphanedLink[] = links
+    .filter((l) => l.subscriptionPeriod && !liveKeys.has(periodKeyOf(row.cycle, l.subscriptionPeriod)))
+    .map((l) => ({
+      transactionId: l.id,
+      period: l.subscriptionPeriod as CalendarDate,
+      amount: toNum(l.amount, 'amount'),
+    }));
+
   const occurrences = all.slice(-12).map((date) => {
     const key = periodKeyOf(row.cycle, date);
     const hit = paid.get(key);
@@ -543,7 +565,7 @@ export async function getSubscriptionHistory(id: string): Promise<{
     };
   });
 
-  return { today, expected: row.amount, occurrences };
+  return { today, expected: row.amount, occurrences, orphaned };
 }
 
 export interface LinkCandidate {
@@ -572,6 +594,10 @@ export async function getLinkCandidates(
   const rows = await db.query.transactions.findMany({
     where: and(
       eq(transactions.userId, user.id),
+      // Expenses only. An income row, a refund or a balance adjustment is not
+      // a subscription payment, and offering one invites a link that would
+      // make the occurrence read Confirmed against money that came in.
+      eq(transactions.type, 'expense'),
       gte(transactions.date, addDays(anchor, -10)),
       lte(transactions.date, addDays(anchor, 10)),
       isNull(transactions.subscriptionId),
