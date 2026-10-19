@@ -24,6 +24,8 @@ export const subscriptions = pgTable('subscriptions', {
   id:              text('id').primaryKey(),
   userId:          uuid('user_id').notNull(),
   name:            text('name').notNull(),
+  // Unread. There was an optional emoji on the form; it was dropped, and the
+  // column is left in place rather than migrated away for one unused field.
   emoji:           text('emoji'),
   amount:          numeric('amount', { precision: 12, scale: 2 }).notNull().$type<number>(),
   cycle:           text('cycle', { enum: ['weekly', 'monthly', 'yearly'] }).notNull().default('monthly'),

@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, Loader2, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { unstable_rethrow } from 'next/navigation';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -14,6 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { SubscriptionHistory } from '@/components/SubscriptionHistory';
+import { addCustomCategory } from '@/app/actions/manage';
 import {
   deleteSubscription, saveSubscription, setSubscriptionStatus,
   type SubscriptionRow,
@@ -23,6 +24,8 @@ import { cn, parseAmountInput } from '@/lib/utils';
 
 // Radix refuses an empty string as a SelectItem value, so "none" needs a name.
 const NONE = '__none__';
+// The same sentinel the add-transaction form uses for its own inline add.
+const ADD_CATEGORY_VALUE = '__add_category__';
 
 const CYCLE_OPTIONS: { value: SubscriptionCycle; label: string }[] = [
   { value: 'weekly', label: 'Weekly' },
@@ -59,8 +62,13 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   const [amount, setAmount] = useState(subscription ? subscription.amount.toFixed(2) : '');
   const [cycle, setCycle] = useState<SubscriptionCycle>(subscription?.cycle ?? 'monthly');
   const [anchorDate, setAnchorDate] = useState(subscription?.anchorDate ?? today);
-  const [emoji, setEmoji] = useState(subscription?.emoji ?? '');
   const [category, setCategory] = useState(subscription?.category ?? NONE);
+  // The list is local so a category created here appears at once, without
+  // waiting for the page to revalidate.
+  const [categoryList, setCategoryList] = useState(categories);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
+  const [savingCategory, setSavingCategory] = useState(false);
   const [accountId, setAccountId] = useState(subscription?.paymentMethodId ?? NONE);
   const [website, setWebsite] = useState(subscription?.website ?? '');
   const [notes, setNotes] = useState(subscription?.notes ?? '');
@@ -78,8 +86,10 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
       setAmount(subscription ? subscription.amount.toFixed(2) : '');
       setCycle(subscription?.cycle ?? 'monthly');
       setAnchorDate(subscription?.anchorDate ?? today);
-      setEmoji(subscription?.emoji ?? '');
       setCategory(subscription?.category ?? NONE);
+      setCategoryList(categories);
+      setAddingCategory(false);
+      setNewCategory('');
       setAccountId(subscription?.paymentMethodId ?? NONE);
       setWebsite(subscription?.website ?? '');
       setNotes(subscription?.notes ?? '');
@@ -95,6 +105,22 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
   // failing — offline, or a stale bundle in this PWA calling an action from
   // an older deploy. Without the finally, `saving` stays true, every control
   // stays disabled behind a spinner, and reopening does not clear it.
+  async function confirmNewCategory() {
+    const name = newCategory.trim();
+    if (!name) return;
+    setSavingCategory(true);
+    const res = await addCustomCategory(name);
+    setSavingCategory(false);
+    if (!res.success) {
+      toast.error(res.error || 'Could not add category');
+      return;
+    }
+    setCategoryList((prev) => [...prev, name]);
+    setCategory(name);
+    setAddingCategory(false);
+    setNewCategory('');
+  }
+
   async function handleSave() {
     // Said before the action, because the action can only answer "greater
     // than zero" — which reads as nonsense to someone who typed 11,99. After
@@ -116,7 +142,6 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
         amount: parseAmountInput(amount),
         cycle,
         anchorDate,
-        emoji,
         category: category === NONE ? null : category,
         paymentMethodId: accountId === NONE ? null : accountId,
         website,
@@ -261,26 +286,59 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
 
           {more && (
             <div className="grid gap-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-1.5">
-                  <Label htmlFor="sub-emoji">Emoji</Label>
-                  {/* No maxLength: it counts UTF-16 units, and 🏋️‍♀️ is six of
-                      them, so the cap would cut the sequence mid-joiner and
-                      leave a mojibake fragment. The action validates by
-                      grapheme instead. */}
-                  <Input id="sub-emoji" value={emoji} onChange={(e) => setEmoji(e.target.value)}
-                         placeholder="🎵" />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label htmlFor="sub-category">Category</Label>
-                  <Select value={category} onValueChange={setCategory}>
+              <div className="grid gap-1.5">
+                <Label htmlFor="sub-category">Category</Label>
+                {addingCategory ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      autoFocus
+                      value={newCategory}
+                      onChange={(e) => setNewCategory(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          confirmNewCategory();
+                        }
+                      }}
+                      placeholder="New category"
+                      className="h-9"
+                    />
+                    <button
+                      type="button"
+                      onClick={confirmNewCategory}
+                      disabled={!newCategory.trim() || savingCategory}
+                      className="w-9 h-9 shrink-0 bg-accent text-white flex items-center justify-center disabled:opacity-30"
+                    >
+                      {savingCategory ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setAddingCategory(false); setNewCategory(''); }}
+                      className="w-9 h-9 shrink-0 border border-line text-ink-soft flex items-center justify-center"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <Select
+                    value={category}
+                    onValueChange={(v) => (v === ADD_CATEGORY_VALUE ? setAddingCategory(true) : setCategory(v))}
+                  >
                     <SelectTrigger id="sub-category" className="w-full"><SelectValue placeholder="None" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE}>None</SelectItem>
-                      {categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      {categoryList.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      {/* The same item, and the same sentinel, that the add
+                          transaction form uses. A category created here is a
+                          real custom category, not a subscriptions-only one. */}
+                      <SelectItem value={ADD_CATEGORY_VALUE} className="text-accent">
+                        <span className="flex items-center gap-1.5">
+                          <Plus className="h-3.5 w-3.5" /> Add category
+                        </span>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
+                )}
               </div>
 
               <div className="grid gap-1.5">

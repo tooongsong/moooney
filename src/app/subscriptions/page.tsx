@@ -90,7 +90,7 @@ export default async function SubscriptionsPage({
                   key={`${o.subscriptionId}-${o.date}`}
                   className="flex items-center gap-3 py-3 border-t border-line"
                 >
-                  <SubscriptionMark name={o.name} emoji={o.emoji} size={32} />
+                  <SubscriptionMark name={o.name} size={32} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-ink">{o.name}</span>
                     <span className="block text-[11px] text-ink-faint">

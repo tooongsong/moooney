@@ -49,19 +49,6 @@ export function toDateInputValue(date: Date | string = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-/**
- * True when `value` is exactly one character as a person sees it.
- *
- * Code points are the wrong unit and this is the bug worth remembering: 🧑‍💻
- * is three of them, 🏳️‍🌈 four, 👨‍👩‍👧 five, 1️⃣ three. Counting code points
- * rejects half the emoji keyboard while still accepting "ab". A grapheme
- * cluster is the unit being limited, and Intl.Segmenter is the only thing
- * that knows where they end.
- */
-export function isSingleGrapheme(value: string): boolean {
-  return [...new Intl.Segmenter().segment(value)].length === 1;
-}
-
 /** The first character of `value` as a person sees it, or '' if there is none.
  *  Same reason as above: `value[0]` and `Array.from(value)[0]` both return a
  *  fragment of a joined emoji or a letter stripped of its accent. */

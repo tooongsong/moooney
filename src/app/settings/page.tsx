@@ -8,12 +8,15 @@ import {
   deletePaymentMethod,
   listCustomCategories,
   addCustomCategory,
+  getHiddenCategories,
+  hideBuiltInCategory,
+  showBuiltInCategory,
   renameCustomCategory,
   deleteCustomCategory,
 } from '@/app/actions/manage';
 import { signOut } from '@/app/actions/auth';
 import { formatCurrency } from '@/lib/utils';
-import { CATEGORIES } from '@/lib/categories';
+import { CATEGORIES, DEFAULT_CATEGORY } from '@/lib/categories';
 import { ManageList } from '@/components/ManageList';
 import { ProfileSection } from './ProfileSection';
 import { ThemeToggle } from './ThemeToggle';
@@ -30,12 +33,13 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 export default async function SettingsPage() {
-  const [profile, prefs, accounts, archived, categories] = await Promise.all([
+  const [profile, prefs, accounts, archived, categories, hiddenCategories] = await Promise.all([
     getProfile(),
     getPreferences(),
     getAccountBalances(),
     listArchivedAccounts(),
     listCustomCategories(),
+    getHiddenCategories(),
   ]);
 
   return (
@@ -73,7 +77,12 @@ export default async function SettingsPage() {
           description=""
           placeholder="e.g. Childcare"
           items={categories}
-          builtIn={[...CATEGORIES]}
+          builtIn={CATEGORIES.filter((c) => !hiddenCategories.includes(c))}
+          hiddenBuiltIn={hiddenCategories}
+          onHideBuiltIn={hideBuiltInCategory}
+          onShowBuiltIn={showBuiltInCategory}
+          fallbackName={DEFAULT_CATEGORY}
+          variant="chips"
           onAdd={addCustomCategory}
           onDelete={deleteCustomCategory}
           onRename={renameCustomCategory}

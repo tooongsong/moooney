@@ -127,7 +127,7 @@ export function SubscriptionList({
           {group.rows.map((s) => (
             <SubscriptionDialog key={s.id} subscription={s} today={today} categories={categories} accounts={accounts}>
               <button type="button" className="w-full flex items-center gap-3 py-3 border-t border-line text-left hover:bg-sand/40 transition-colors">
-                <SubscriptionMark name={s.name} emoji={s.emoji} size={36} />
+                <SubscriptionMark name={s.name} size={36} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5 min-w-0">
                     <span className="truncate text-sm font-semibold text-ink">{s.name}</span>

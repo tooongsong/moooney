@@ -8,7 +8,6 @@ import { db } from '@/db';
 import { paymentMethods, subscriptions, transactions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
 import { addDays, daysBetween, monthRange, safeTimeZone, toCalendarDate, todayIn, yearRange, type CalendarDate } from '@/lib/dates';
-import { isSingleGrapheme } from '@/lib/utils';
 import {
   LINK_CANDIDATE_LIMIT,
   monthlyEquivalent,
@@ -58,7 +57,7 @@ function failed(op: string, error: unknown, message: string) {
 // needs them and the rows are few; created_at and updated_at are not, because
 // nothing renders them.
 const SUB_COLUMNS = {
-  id: true, name: true, emoji: true, amount: true, cycle: true,
+  id: true, name: true, amount: true, cycle: true,
   anchorDate: true, status: true, stoppedOn: true, category: true,
   paymentMethodId: true, website: true, notes: true,
 } as const;
@@ -66,7 +65,6 @@ const SUB_COLUMNS = {
 export interface SubscriptionRow {
   id: string;
   name: string;
-  emoji: string | null;
   amount: number;
   cycle: SubscriptionCycle;
   anchorDate: CalendarDate;
@@ -81,7 +79,6 @@ export interface SubscriptionRow {
 export interface UpcomingOccurrence {
   subscriptionId: string;
   name: string;
-  emoji: string | null;
   cycle: SubscriptionCycle;
   amount: number;
   date: CalendarDate;
@@ -126,7 +123,6 @@ export async function getSubscriptionsView(): Promise<SubscriptionsView> {
     .map((s) => ({
       subscriptionId: s.id,
       name: s.name,
-      emoji: s.emoji,
       cycle: s.cycle,
       amount: s.amount,
       date: s.next,
@@ -206,7 +202,6 @@ export interface SaveSubscriptionInput {
   cycle: SubscriptionCycle;
   /** The first payment date. Re-anchors the whole series when edited. */
   anchorDate: string;
-  emoji?: string | null;
   category?: string | null;
   paymentMethodId?: string | null;
   website?: string | null;
@@ -249,16 +244,10 @@ export async function saveSubscription(
     return { success: false, error: 'Amount is too large' };
   }
 
-  const emoji = clean(input.emoji);
-  if (emoji && !isSingleGrapheme(emoji)) {
-    return { success: false, error: 'Use a single emoji' };
-  }
-
   const paymentMethodId = clean(input.paymentMethodId);
 
   const values = {
     name,
-    emoji,
     amount: input.amount,
     cycle: input.cycle,
     anchorDate,
@@ -386,7 +375,6 @@ function revalidate() {
 export interface DayOccurrence {
   subscriptionId: string;
   name: string;
-  emoji: string | null;
   amount: number;
   cycle: SubscriptionCycle;
   date: CalendarDate;
@@ -483,7 +471,6 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
       (byDay[date] ??= []).push({
         subscriptionId: s.id,
         name: s.name,
-        emoji: s.emoji,
         amount: s.amount,
         cycle: s.cycle,
         date,

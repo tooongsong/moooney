@@ -9,16 +9,21 @@ import {
   deletePaymentMethod,
   listCustomCategories,
   addCustomCategory,
+  getHiddenCategories,
+  hideBuiltInCategory,
+  showBuiltInCategory,
   renameCustomCategory,
   deleteCustomCategory,
 } from '@/app/actions/manage';
 import { signOut } from '@/app/actions/auth';
 import { getAccountBalances } from '@/app/actions/accounts';
 import { formatCurrency } from '@/lib/utils';
-import { CATEGORIES } from '@/lib/categories';
+import { CATEGORIES, DEFAULT_CATEGORY } from '@/lib/categories';
 
 export default async function ManagePage() {
-  const [accounts, categories] = await Promise.all([getAccountBalances(), listCustomCategories()]);
+  const [accounts, categories, hiddenCategories] = await Promise.all([
+    getAccountBalances(), listCustomCategories(), getHiddenCategories(),
+  ]);
 
   return (
     <div className="max-w-md mx-auto px-6 min-h-screen bg-paper pb-16">
@@ -56,7 +61,12 @@ export default async function ManagePage() {
           description="Add your own on top of the built-in ones."
           placeholder="e.g. Childcare"
           items={categories}
-          builtIn={[...CATEGORIES]}
+          builtIn={CATEGORIES.filter((c) => !hiddenCategories.includes(c))}
+          hiddenBuiltIn={hiddenCategories}
+          onHideBuiltIn={hideBuiltInCategory}
+          onShowBuiltIn={showBuiltInCategory}
+          fallbackName={DEFAULT_CATEGORY}
+          variant="chips"
           onAdd={addCustomCategory}
           onDelete={deleteCustomCategory}
           onRename={renameCustomCategory}

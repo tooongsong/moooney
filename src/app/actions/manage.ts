@@ -6,7 +6,7 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { paymentMethods, customCategories, transactions, subscriptions, transfers } from '@/db/schema';
-import { CATEGORIES } from '@/lib/categories';
+import { CATEGORIES, DEFAULT_CATEGORY } from '@/lib/categories';
 import type { AccountType } from '@/lib/accountTypes';
 import { createClient } from '@/lib/supabase/server';
 
@@ -230,11 +230,87 @@ export async function deleteCustomCategory(id: string) {
   return { success: true };
 }
 
+/**
+ * The built-in categories this user has removed.
+ *
+ * They are a constant in the source, so there is no row to delete — removing
+ * one is a preference, and it lives where the timezone already does. A list
+ * of a dozen strings does not need a table of its own.
+ */
+function hiddenFrom(user: { user_metadata?: Record<string, unknown> }): string[] {
+  const raw = user.user_metadata?.hiddenCategories;
+  return Array.isArray(raw) ? raw.filter((n): n is string => typeof n === 'string') : [];
+}
+
+export async function getHiddenCategories(): Promise<string[]> {
+  return hiddenFrom(await getUser());
+}
+
+/**
+ * Remove a built-in category, moving anything filed under it to Other.
+ *
+ * Same consequence as deleting a custom one, because the alternative — hiding
+ * the name while transactions still carry it — would leave it showing in
+ * Overview's breakdown and nowhere else.
+ */
+export async function hideBuiltInCategory(name: string) {
+  if (!(CATEGORIES as readonly string[]).includes(name)) {
+    return { success: false, error: 'Not a built-in category' };
+  }
+  // Other is where every removal sends its transactions, so it is the one
+  // that cannot itself be removed.
+  if (name === DEFAULT_CATEGORY) {
+    return { success: false, error: `${DEFAULT_CATEGORY} is where removed categories send their transactions` };
+  }
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: 'Not authenticated' };
+
+  await db.update(transactions).set({ category: DEFAULT_CATEGORY, updatedAt: new Date() })
+    .where(and(eq(transactions.userId, user.id), eq(transactions.category, name)));
+
+  const next = [...new Set([...hiddenFrom(user), name])];
+  const { error } = await supabase.auth.updateUser({
+    data: { ...user.user_metadata, hiddenCategories: next },
+  });
+  if (error) return { success: false, error: error.message };
+
+  revalidateCategories();
+  return { success: true };
+}
+
+/** Put one back. Transactions already moved to Other stay there. */
+export async function showBuiltInCategory(name: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: 'Not authenticated' };
+
+  const next = hiddenFrom(user).filter((n) => n !== name);
+  const { error } = await supabase.auth.updateUser({
+    data: { ...user.user_metadata, hiddenCategories: next },
+  });
+  if (error) return { success: false, error: error.message };
+
+  revalidateCategories();
+  return { success: true };
+}
+
+function revalidateCategories() {
+  revalidatePath('/manage');
+  revalidatePath('/settings');
+  revalidatePath('/history');
+  revalidatePath('/overview');
+  revalidatePath('/');
+}
+
 export async function getAllCategories(): Promise<string[]> {
   const user = await getUser();
+  const hidden = new Set(hiddenFrom(user));
   const custom = await db.query.customCategories.findMany({
     where: eq(customCategories.userId, user.id),
+    columns: { name: true },
     orderBy: [asc(customCategories.name)],
   });
-  return [...CATEGORIES, ...custom.map((c) => c.name)];
+  return [...CATEGORIES.filter((c) => !hidden.has(c)), ...custom.map((c) => c.name)];
 }

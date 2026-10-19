@@ -131,7 +131,7 @@ export function SubscriptionCalendar({
                       about 43px, and three 13px circles plus gaps fill it edge
                       to edge with no room to breathe. */}
                   {items.slice(0, 2).map((o) => (
-                    <SubscriptionMark key={o.subscriptionId} name={o.name} emoji={o.emoji} size={13}
+                    <SubscriptionMark key={o.subscriptionId} name={o.name} size={13}
                                       className="bg-ink/15" />
                   ))}
                   {items.length > 2 && (
@@ -163,7 +163,7 @@ export function SubscriptionCalendar({
           </DialogTitle>
           {dayItems.map((o) => (
             <div key={o.subscriptionId} className="flex items-center gap-3 py-2 border-t border-line">
-              <SubscriptionMark name={o.name} emoji={o.emoji} size={32} />
+              <SubscriptionMark name={o.name} size={32} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-ink">{o.name}</span>
                 {/* The state always carries a word, not only a colour. */}

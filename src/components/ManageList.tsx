@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Check, Loader2, Pencil, Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,18 @@ interface ManageListProps {
   placeholder: string;
   items: Item[];
   builtIn?: string[];
+  /** 'chips' puts custom items in the same row as the built-in ones, in the
+   *  same box, so a category you added does not look like a different kind of
+   *  thing from one that shipped. Accounts stay on 'rows': they carry a
+   *  balance, a type and an institution, none of which fit in a chip. */
+  variant?: 'rows' | 'chips';
+  /** Built-in names this user has removed. Shown, struck through, only while
+   *  the group is armed, so removing one is not a one-way door. */
+  hiddenBuiltIn?: string[];
+  onHideBuiltIn?: (name: string) => Promise<{ success: boolean; error?: string }>;
+  onShowBuiltIn?: (name: string) => Promise<{ success: boolean; error?: string }>;
+  /** The category a removal reassigns to, which therefore cannot be removed. */
+  fallbackName?: string;
   withStartingBalance?: boolean;
   withAccountType?: boolean;
   onAdd: (name: string, startingBalance?: number, type?: AccountType, institution?: string, creditLimit?: number) => Promise<{ success: boolean; error?: string }>;
@@ -36,6 +48,11 @@ export function ManageList({
   placeholder,
   items,
   builtIn,
+  variant = 'rows',
+  hiddenBuiltIn,
+  onHideBuiltIn,
+  onShowBuiltIn,
+  fallbackName,
   withStartingBalance,
   withAccountType,
   onAdd,
@@ -58,6 +75,38 @@ export function ManageList({
   const [editType, setEditType] = useState<AccountType>('checking');
   const [editInstitution, setEditInstitution] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Chips variant: long-press arms the whole group at once, which is how a
+  // phone keyboard and a home screen both do it. A single tap stays harmless,
+  // and deleting a category rewrites every transaction that used it.
+  const [armed, setArmed] = useState(false);
+  const [busyBuiltIn, setBusyBuiltIn] = useState<string | null>(null);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function handleHide(name: string) {
+    if (!onHideBuiltIn) return;
+    setBusyBuiltIn(name);
+    const res = await onHideBuiltIn(name);
+    setBusyBuiltIn(null);
+    if (!res.success) toast.error(res.error || 'Could not remove it');
+  }
+
+  async function handleShow(name: string) {
+    if (!onShowBuiltIn) return;
+    setBusyBuiltIn(name);
+    const res = await onShowBuiltIn(name);
+    setBusyBuiltIn(null);
+    if (!res.success) toast.error(res.error || 'Could not put it back');
+  }
+
+  function startPress() {
+    cancelPress();
+    pressTimer.current = setTimeout(() => setArmed(true), 450);
+  }
+  function cancelPress() {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+  }
 
   const isCreditCard = typeValue === 'credit_card';
 
@@ -218,19 +267,135 @@ export function ManageList({
         </div>
       )}
 
-      {/* Built-in items (read-only) */}
-      {builtIn && builtIn.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-3">
-          {builtIn.map((name) => (
-            <span key={name} className="text-xs font-semibold uppercase tracking-wide text-ink-soft bg-sand px-3 py-1.5">
-              {name}
+      {/* Built-in items (read-only), and in the chips variant the custom ones
+          beside them in the same row. */}
+      {((builtIn && builtIn.length > 0) || (variant === 'chips' && list.length > 0)) && (
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {builtIn?.map((name) => (
+            <span key={name} className="relative inline-flex">
+              <button
+                type="button"
+                onPointerDown={startPress}
+                onPointerUp={cancelPress}
+                onPointerLeave={cancelPress}
+                onContextMenu={(e) => { e.preventDefault(); setArmed(true); }}
+                className={cn(
+                  'text-xs font-semibold uppercase tracking-wide text-ink-soft bg-sand px-3 py-1.5',
+                  'select-none touch-none',
+                  armed && 'ring-1 ring-inset ring-ink/20',
+                )}
+              >
+                {name}
+              </button>
+              {/* No cross on the fallback: it is where every removal sends its
+                  transactions, so removing it has nowhere to put them. */}
+              {armed && onHideBuiltIn && name !== fallbackName && (
+                <button
+                  type="button"
+                  aria-label={`Remove ${name}`}
+                  onClick={() => handleHide(name)}
+                  disabled={busyBuiltIn === name}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-accent text-white flex items-center justify-center shadow-sm disabled:opacity-40"
+                >
+                  {busyBuiltIn === name
+                    ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    : <X className="h-2.5 w-2.5" strokeWidth={3} />}
+                </button>
+              )}
             </span>
           ))}
+
+          {/* Removed built-ins, shown only while the group is armed. Without
+              this, removing one would be a one-way door with no handle. */}
+          {armed && hiddenBuiltIn?.map((name) => (
+            <span key={name} className="relative inline-flex">
+              <button
+                type="button"
+                onClick={() => handleShow(name)}
+                disabled={busyBuiltIn === name}
+                className="text-xs font-semibold uppercase tracking-wide text-ink-faint bg-sand/50 px-3 py-1.5 select-none disabled:opacity-40 line-through decoration-ink-faint"
+              >
+                {name}
+              </button>
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink text-white flex items-center justify-center shadow-sm pointer-events-none">
+                {busyBuiltIn === name
+                  ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  : <Plus className="h-2.5 w-2.5" strokeWidth={3} />}
+              </span>
+            </span>
+          ))}
+
+          {variant === 'chips' && list.map((item) =>
+            editingId === item.id ? (
+              <span key={item.id} className="flex items-center gap-1">
+                <Input
+                  autoFocus
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); saveEdit(item.id); }
+                    if (e.key === 'Escape') setEditingId(null);
+                  }}
+                  className="h-[30px] w-36 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => saveEdit(item.id)}
+                  disabled={isSavingEdit || !editName.trim()}
+                  className="w-[30px] h-[30px] shrink-0 bg-ink text-white flex items-center justify-center disabled:opacity-40"
+                >
+                  {isSavingEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                </button>
+              </span>
+            ) : (
+              <span key={item.id} className="relative inline-flex">
+                <button
+                  type="button"
+                  onPointerDown={startPress}
+                  onPointerUp={cancelPress}
+                  onPointerLeave={cancelPress}
+                  onContextMenu={(e) => { e.preventDefault(); setArmed(true); }}
+                  onClick={() => { if (armed && onRename) startEdit(item); }}
+                  className={cn(
+                    'text-xs font-semibold uppercase tracking-wide text-ink-soft bg-sand px-3 py-1.5',
+                    'select-none touch-none',
+                    armed && 'ring-1 ring-inset ring-ink/20',
+                  )}
+                >
+                  {item.name}
+                </button>
+                {armed && (
+                  <button
+                    type="button"
+                    aria-label={`Delete ${item.name}`}
+                    onClick={() => handleDelete(item.id)}
+                    disabled={deletingId === item.id}
+                    className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-accent text-white flex items-center justify-center shadow-sm disabled:opacity-40"
+                  >
+                    {deletingId === item.id
+                      ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                      : <X className="h-2.5 w-2.5" strokeWidth={3} />}
+                  </button>
+                )}
+              </span>
+            ),
+          )}
+
+          {variant === 'chips' && armed && (
+            <button
+              type="button"
+              onClick={() => setArmed(false)}
+              className="text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink px-1"
+            >
+              Done
+            </button>
+          )}
         </div>
       )}
 
-      {/* Custom items list */}
-      {list.length > 0 && (
+      {/* Custom items list. In the chips variant they are already drawn above,
+          beside the built-in ones, which is the whole point of that variant. */}
+      {variant === 'rows' && list.length > 0 && (
         <div className="rounded-2xl border border-line bg-paper-card divide-y divide-line overflow-hidden">
           {list.map((item) => (
             <div key={item.id}>
