@@ -81,9 +81,9 @@ export function TimeZoneRow({ timezone: initial }: { timezone: string }) {
     <div className="py-3 flex items-center justify-between gap-4">
       <div className="min-w-0">
         <span className="text-sm text-ink">Time Zone</span>
-        <p className="text-[10px] text-ink-faint mt-0.5">
-          {clock ? `Now ${clock} — decides which day “today” is` : 'Decides which day “today” is'}
-        </p>
+        {/* The clock only. It is a readout, not an explanation: it is how a
+            wrong zone shows itself. Nothing renders before it resolves. */}
+        {clock && <p className="text-[10px] text-ink-faint mt-0.5">{clock}</p>}
       </div>
       <select
         value={timezone}
