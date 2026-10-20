@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache';
 import { db } from '@/db';
 import { paymentMethods, subscriptions, transactions } from '@/db/schema';
 import { createClient } from '@/lib/supabase/server';
+import { DEFAULT_CATEGORY } from '@/lib/categories';
 import { addDays, daysBetween, monthRange, safeTimeZone, toCalendarDate, todayIn, yearRange, type CalendarDate } from '@/lib/dates';
 import {
   LINK_CANDIDATE_LIMIT,
@@ -86,6 +87,25 @@ export interface UpcomingOccurrence {
   daysAway: number;
 }
 
+/**
+ * How far back to offer to record a missed charge.
+ *
+ * Long enough to cover a month away from the app, short enough that adding a
+ * three-year-old subscription does not produce thirty-six prompts. Anything
+ * older is still linkable from the subscription's own payments panel.
+ */
+const DUE_WINDOW_DAYS = 62;
+
+/** A charge that was expected, has not been recorded, and is in the past. */
+export interface DuePayment {
+  subscriptionId: string;
+  name: string;
+  date: CalendarDate;
+  /** The subscription's amount. The prompt lets it be corrected before saving. */
+  amount: number;
+  daysAgo: number;
+}
+
 export interface SubscriptionsView {
   today: CalendarDate;
   subscriptions: (SubscriptionRow & { next: CalendarDate | null })[];
@@ -94,6 +114,8 @@ export interface SubscriptionsView {
   annualTotal: number;
   activeCount: number;
   upcoming: UpcomingOccurrence[];
+  /** Past occurrences with nothing linked, newest first. */
+  due: DuePayment[];
 }
 
 async function loadRows(userId: string): Promise<SubscriptionRow[]> {
@@ -129,8 +151,44 @@ export async function getSubscriptionsView(): Promise<SubscriptionsView> {
       daysAway: daysBetween(today, s.next),
     }));
 
+  // Which recent occurrences are already recorded. Keyed the same way every
+  // other surface keys them, so the three cannot disagree about one payment.
+  const from = addDays(today, -DUE_WINDOW_DAYS);
+  const recentLinks = await db.query.transactions.findMany({
+    where: and(
+      eq(transactions.userId, user.id),
+      eq(transactions.type, 'expense'),
+      gte(transactions.subscriptionPeriod, from),
+      lte(transactions.subscriptionPeriod, today),
+    ),
+    columns: { subscriptionId: true, subscriptionPeriod: true },
+  });
+  const recorded = new Set<string>();
+  for (const l of recentLinks) {
+    if (!l.subscriptionId || !l.subscriptionPeriod) continue;
+    const cycle = rows.find((s) => s.id === l.subscriptionId)?.cycle;
+    if (cycle) recorded.add(`${l.subscriptionId}|${periodKeyOf(cycle, l.subscriptionPeriod)}`);
+  }
+
+  const due: DuePayment[] = [];
+  for (const s of rows) {
+    if (s.status !== 'active') continue;
+    for (const date of occurrencesBetween(s, from, today, today)) {
+      const key = `${s.id}|${periodKeyOf(s.cycle, date)}`;
+      // occurrenceState, not a date comparison: this is the same rule the
+      // calendar and the payments panel use, and today is not yet overdue.
+      if (occurrenceState(recorded.has(key), date, today) !== 'unconfirmed') continue;
+      due.push({
+        subscriptionId: s.id, name: s.name, date,
+        amount: s.amount, daysAgo: daysBetween(date, today),
+      });
+    }
+  }
+  due.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
   return {
     today,
+    due,
     subscriptions: withNext,
     monthlyTotal: round2(monthly),
     annualTotal: round2(monthly * 12),
@@ -502,6 +560,80 @@ export async function getMonthOccurrences(monthKey?: string): Promise<MonthOccur
 }
 
 /** A link whose period answers to no occurrence in the series any more. */
+/**
+ * Record a charge the schedule expected, as the payment it was.
+ *
+ * This is the one place the app creates a transaction from a subscription,
+ * and it is still a person asserting the fact: the prompt offers, the tap
+ * confirms. Nothing here runs on a timer, and nothing writes a transaction
+ * the user did not ask for.
+ */
+export async function recordSubscriptionPayment(
+  subscriptionId: string,
+  period: string,
+  amount: number,
+): Promise<{ success: boolean; error?: string }> {
+  const user = await getUser();
+
+  let periodDate: CalendarDate;
+  try {
+    periodDate = toCalendarDate(period);
+  } catch {
+    return { success: false, error: 'Not a valid date' };
+  }
+  if (!Number.isFinite(amount) || round2(amount) <= 0) {
+    return { success: false, error: 'Amount must be greater than zero' };
+  }
+  if (amount > 9_999_999_999.99) {
+    return { success: false, error: 'Amount is too large' };
+  }
+
+  try {
+    const [sub] = await db.query.subscriptions.findMany({
+      where: and(eq(subscriptions.id, subscriptionId), eq(subscriptions.userId, user.id)),
+      columns: { id: true, name: true, cycle: true, category: true, paymentMethodId: true },
+      limit: 1,
+    });
+    if (!sub) return { success: false, error: 'Subscription not found' };
+
+    // Already recorded, from another tab or a second tap. Checked by period
+    // key rather than by date, because that is what "this occurrence" means.
+    const existing = await db.query.transactions.findMany({
+      where: and(
+        eq(transactions.userId, user.id),
+        eq(transactions.subscriptionId, subscriptionId),
+      ),
+      columns: { subscriptionPeriod: true },
+    });
+    const key = periodKeyOf(sub.cycle, periodDate);
+    if (existing.some((l) => l.subscriptionPeriod && periodKeyOf(sub.cycle, l.subscriptionPeriod) === key)) {
+      return { success: false, error: 'That payment is already recorded' };
+    }
+
+    await db.insert(transactions).values({
+      id: randomUUID(),
+      userId: user.id,
+      date: periodDate,
+      amount,
+      type: 'expense',
+      category: sub.category ?? DEFAULT_CATEGORY,
+      merchant: sub.name,
+      description: sub.name,
+      paymentMethodId: sub.paymentMethodId,
+      // Linked as it is created, so the occurrence reads Confirmed at once and
+      // a second prompt for the same period cannot appear.
+      subscriptionId,
+      subscriptionPeriod: periodDate,
+    });
+
+    revalidate();
+    revalidatePath('/history');
+    return { success: true };
+  } catch (error) {
+    return failed('recordSubscriptionPayment', error, 'Could not record it. Please try again.');
+  }
+}
+
 export interface OrphanedLink {
   transactionId: string;
   period: CalendarDate;

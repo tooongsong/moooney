@@ -6,6 +6,7 @@ import { ResponsiveAmount } from '@/components/ResponsiveAmount';
 import { SubscriptionCalendar } from '@/components/SubscriptionCalendar';
 import { SubscriptionDialog } from '@/components/SubscriptionDialog';
 import { SubscriptionList } from '@/components/SubscriptionList';
+import { SubscriptionDue } from '@/components/SubscriptionDue';
 import { SubscriptionMark } from '@/components/SubscriptionMark';
 import { getAllCategories } from '@/app/actions/manage';
 import { getAccountOptions, getMonthOccurrences, getSubscriptionsView } from '@/app/actions/subscriptions';
@@ -80,6 +81,11 @@ export default async function SubscriptionsPage({
               </button>
             </SubscriptionDialog>
           </div>
+
+          {/* ── What was expected and never recorded. Above Upcoming
+                 deliberately: it is the only part of this page with
+                 something to do. ── */}
+          <SubscriptionDue due={view.due} />
 
           {/* ── What is coming ── */}
           {view.upcoming.length > 0 && (
