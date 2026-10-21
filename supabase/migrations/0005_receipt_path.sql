@@ -1,0 +1,14 @@
+-- Records a column production already has.
+--
+-- `receipt_path` was added to the live database by hand for a receipt-storage
+-- feature that was never wired up, and it appeared in no migration and in no
+-- schema file. That drift is what makes `drizzle-kit generate` emit a DROP
+-- COLUMN for it, and it would leave a database built from these migrations
+-- missing a column src/db/schema.ts declares.
+--
+-- IF NOT EXISTS so this is a no-op against the database that already has it.
+-- Nothing reads or writes the column; saveTransaction nulls both receipt
+-- columns deliberately, because storing base64 images dominated every query's
+-- payload. It is declared, not dropped, because dropping it is irreversible
+-- and buys nothing.
+alter table transactions add column if not exists receipt_path text;

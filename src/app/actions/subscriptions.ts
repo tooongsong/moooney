@@ -339,6 +339,30 @@ export async function saveSubscription(
         .where(and(eq(subscriptions.id, input.id), eq(subscriptions.userId, user.id)))
         .returning({ id: subscriptions.id });
       if (res.length === 0) return { success: false, error: 'Subscription not found' };
+
+      // A category is a label, not a fact. The amount and date of a recorded
+      // payment are what happened and are never touched here — but its
+      // category is a classification this subscription owns, so correcting it
+      // here corrects the payments already recorded under the old one.
+      //
+      // Without this, setting the category after recording a payment leaves
+      // that payment filed under Other forever, with nothing on screen saying
+      // why: recordSubscriptionPayment copies the category at the moment it
+      // writes the row, and a subscription is usually categorised later.
+      if (values.category) {
+        await db
+          .update(transactions)
+          .set({ category: values.category, updatedAt: new Date() })
+          .where(and(
+            eq(transactions.subscriptionId, input.id),
+            eq(transactions.userId, user.id),
+          ));
+        // Home and History read the category off the transaction, and
+        // revalidate() below covers neither.
+        revalidatePath('/');
+        revalidatePath('/history');
+      }
+
       revalidate();
       return { success: true, id: input.id };
     }

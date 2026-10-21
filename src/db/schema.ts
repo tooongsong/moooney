@@ -58,6 +58,10 @@ export const transactions = pgTable('transactions', {
   paymentMethodId: text('payment_method_id').references(() => paymentMethods.id),
   notes:           text('notes'),
   receiptUrl:      text('receipt_url'),
+  // Present in the database and declared here only so drizzle-kit does not
+  // generate a DROP COLUMN for it. Nothing reads or writes either receipt
+  // column — see saveTransaction, which nulls them deliberately.
+  receiptPath:     text('receipt_path'),
   // Which subscription this payment settled, and which occurrence of it. The
   // link lives here because this row is the payment.
   subscriptionId:     text('subscription_id')

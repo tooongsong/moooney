@@ -261,6 +261,7 @@ export async function saveTransactions(inputs: SaveTransactionInput[]) {
 }
 
 export async function updateTransaction(id: string, input: SaveTransactionInput) {
+  const user = await getUser();
   try {
     await db
       .update(transactions)
@@ -277,7 +278,9 @@ export async function updateTransaction(id: string, input: SaveTransactionInput)
         needsReview: input.needsReview || false,
         updatedAt: new Date(),
       })
-      .where(eq(transactions.id, id));
+      // Scoped to the owner: this connection bypasses RLS, so an id arriving
+      // from the client is not evidence the caller owns that row.
+      .where(and(eq(transactions.id, id), eq(transactions.userId, user.id)));
 
     revalidatePath('/');
     revalidatePath('/history');
@@ -290,8 +293,10 @@ export async function updateTransaction(id: string, input: SaveTransactionInput)
 }
 
 export async function deleteTransaction(id: string) {
+  const user = await getUser();
   try {
-    await db.delete(transactions).where(eq(transactions.id, id));
+    // Same reason as updateTransaction: the id is the caller's claim, not proof.
+    await db.delete(transactions).where(and(eq(transactions.id, id), eq(transactions.userId, user.id)));
     revalidatePath('/');
     revalidatePath('/history');
     return { success: true };
