@@ -219,14 +219,24 @@ export function OverviewClient({ data, period, currentYear, currentMonth, trend,
       <div className="d-mobile-only">
         <Link
           href="/subscriptions"
-          className="flex items-center justify-between gap-3 py-3.5 border-t border-line active:bg-sand/40 transition-colors"
+          className="flex items-center justify-between gap-3 py-3.5 border-y border-line active:bg-sand/40 transition-colors"
         >
-          <span className="text-[9px] font-bold uppercase tracking-widest text-ink-faint">Recurring</span>
+          {/* A row, not a section heading. In faint 9px caps this label was
+              typographically identical to OVERVIEW and TOP CATEGORIES, carried
+              a rule above it and nothing below, and sat directly on top of the
+              week bars — so it read as the chart's title rather than as a link
+              to somewhere else. Row type and a closing rule make it a thing
+              you tap; "Subscriptions" is what the nav, the page and the user
+              all call this, which "Recurring" was not. */}
+          <span className="min-w-0 truncate text-sm font-semibold text-ink">Subscriptions</span>
           <span className="flex items-center gap-1.5 shrink-0 text-sm">
             {recurring.activeCount > 0 ? (
               <>
                 <span className="font-semibold text-ink tabular-nums">{formatCurrency(recurring.monthly)}</span>
-                <span className="text-xs text-ink-faint">monthly equivalent</span>
+                {/* "/mo", not "monthly equivalent": the long form plus a real
+                    label no longer fits a 320px screen, and the rate is the
+                    only part that has to survive the squeeze. */}
+                <span className="text-xs text-ink-faint">/mo</span>
               </>
             ) : (
               <span className="text-xs text-ink-faint">Track what renews</span>
