@@ -216,7 +216,9 @@ export function OverviewClient({ data, period, currentYear, currentMonth, trend,
           This figure is a rate, not this period's spending. It is summed into
           nothing above it, and it reads the same whichever month is showing,
           which is why there is no period condition here. */}
-      <div className="d-mobile-only">
+      {/* mb-6: the row closes with a rule, and without space after it the
+          bars read as belonging to it. */}
+      <div className="d-mobile-only mb-6">
         <Link
           href="/subscriptions"
           className="flex items-center justify-between gap-3 py-3.5 border-y border-line active:bg-sand/40 transition-colors"

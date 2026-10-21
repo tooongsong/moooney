@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plus } from 'lucide-react';
+import { ArrowLeft, Plus } from 'lucide-react';
 import { BottomNav } from '@/components/BottomNav';
 import { QuickAddIsland } from '@/components/QuickAddIsland';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
@@ -21,6 +21,19 @@ export default async function SubscriptionsPage({
   const params = await searchParams;
   const calendarView = params.view === 'calendar';
 
+  // Phone only. The bottom-nav pill is full at four tabs, so Subscriptions
+  // has none: the page is reached from the Overview row and, until this, had
+  // no way back to it. Desktop keeps the sidebar and needs nothing here.
+  const heading = (spacing: string) => (
+    <div className={cn('flex items-center gap-2', spacing)}>
+      <Link href="/overview"
+            className="d-mobile-only text-ink-faint hover:text-ink transition-colors -ml-1">
+        <ArrowLeft className="h-4 w-4" />
+      </Link>
+      <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint">Subscriptions</p>
+    </div>
+  );
+
   const [view, categories, accounts, month] = await Promise.all([
     getSubscriptionsView(),
     getAllCategories(),
@@ -36,7 +49,7 @@ export default async function SubscriptionsPage({
 
       {view.subscriptions.length === 0 ? (
         <div className="pt-10 pb-16">
-          <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-6">Subscriptions</p>
+          {heading('mb-6')}
           <p className="text-3xl font-bold tracking-tighter text-ink-faint leading-tight">
             NOTHING<br />RECURRING.
           </p>
@@ -55,7 +68,7 @@ export default async function SubscriptionsPage({
         <>
           {/* ── What the standing commitment costs ── */}
           <section className="pt-3 pb-5">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-3">Subscriptions</p>
+            {heading('mb-3')}
             <ResponsiveAmount value={view.monthlyTotal} baseSize={68} minSize={28} className="mb-3" split />
             {/* "equivalent", not "spend": a yearly subscription contributes a
                 twelfth here every month and its whole amount in the month it
