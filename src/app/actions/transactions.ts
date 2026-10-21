@@ -263,6 +263,15 @@ export async function saveTransactions(inputs: SaveTransactionInput[]) {
 export async function updateTransaction(id: string, input: SaveTransactionInput) {
   const user = await getUser();
   try {
+    // The name alone is not the account. Balances match on paymentMethodId
+    // first and only fall back to the name when that id is null, so writing
+    // the new name over a stale id left the transaction counted against the
+    // account it used to be on — the edit appeared to work and changed
+    // nothing. Resolved the same way saveTransaction resolves it, including
+    // the null for a name that matches no live account, which is what hands
+    // the row back to the legacy name matching.
+    const paymentMethodId = await resolveMethodId(user.id, input.paymentMethod);
+
     await db
       .update(transactions)
       .set({
@@ -273,6 +282,7 @@ export async function updateTransaction(id: string, input: SaveTransactionInput)
         merchant: input.merchant,
         description: input.description,
         paymentMethod: input.paymentMethod || null,
+        paymentMethodId,
         notes: input.notes || null,
         items: input.items || null,
         needsReview: input.needsReview || false,
@@ -284,6 +294,9 @@ export async function updateTransaction(id: string, input: SaveTransactionInput)
 
     revalidatePath('/');
     revalidatePath('/history');
+    // The account the transaction moved off and the one it moved onto both
+    // have a new balance now.
+    revalidatePath('/accounts');
 
     return { success: true };
   } catch (error) {

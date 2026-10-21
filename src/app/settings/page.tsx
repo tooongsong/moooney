@@ -92,7 +92,6 @@ export default async function SettingsPage() {
       {/* ACCOUNTS */}
       <section className="pt-8">
         <SectionLabel>Accounts</SectionLabel>
-        <p className="text-[9px] font-bold uppercase tracking-widest text-ink-faint mb-2">Active</p>
         <ManageList
           title=""
           description=""
