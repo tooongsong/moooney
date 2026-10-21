@@ -374,14 +374,28 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
 
         {subscription && (
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            {/* Its own line, so the buttons and Delete wrap beneath it rather
-                than overflowing a narrow sheet. Paused and Ended record this as
-                the day billing stopped; Active ignores it. */}
-            <div className="grid w-full gap-1.5">
-              <Label htmlFor="sub-stopped">Billing stopped on</Label>
-              <Input id="sub-stopped" type="date" value={stoppedOn} disabled={saving}
-                     onChange={(e) => setStoppedOn(e.target.value)} />
-            </div>
+            {/* Only once it has actually stopped. On an active subscription
+                this field asked when billing stopped on something still
+                billing, and the date it showed was ignored anyway — Active
+                nulls the column. Ending it records today, which is right for
+                the ordinary case of ending it the day you cancelled.
+
+                It appears afterwards because that is when the date is worth
+                correcting: the list reads "Ended Oct 20", and a subscription
+                that really stopped in July needs saying so, or the schedule
+                bills it through October and the due prompt asks for three
+                charges that never happened. Re-picking the same status with a
+                different date here is the correction — see handleStatus.
+
+                Its own line, so the buttons and Delete wrap beneath it rather
+                than overflowing a narrow sheet. */}
+            {subscription.status !== 'active' && (
+              <div className="grid w-full gap-1.5">
+                <Label htmlFor="sub-stopped">Billing stopped on</Label>
+                <Input id="sub-stopped" type="date" value={stoppedOn} disabled={saving}
+                       onChange={(e) => setStoppedOn(e.target.value)} />
+              </div>
+            )}
             {STATUS_OPTIONS.map((s) => (
               <button
                 key={s.value}
