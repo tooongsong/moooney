@@ -126,12 +126,28 @@ export default function AddPage() {
     await runExtraction({ text: text.trim() }, 'Understanding…');
   }
 
+  // One request per image (each stays under the server action's 5 MB body limit); the drafts are pooled.
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     e.target.value = '';
-    await runExtraction({ imageBase64: await imageToBase64(file) }, 'Scanning…');
+
+    setIsExtracting(true);
+    const found: TransactionDraft[] = [];
+    let lastError = '';
+    for (const [i, file] of files.entries()) {
+      setLoadingLabel(files.length > 1 ? `Scanning ${i + 1} of ${files.length}…` : 'Scanning…');
+      try {
+        const result = await extractDraft({ imageBase64: await imageToBase64(file) });
+        if (result.success) found.push(...result.drafts);
+        else lastError = result.error;
+      } catch {
+        lastError = 'Photo failed to load. Try again.';
+      }
+    }
+    setIsExtracting(false);
+    if (found.length > 0) setDrafts(found);
+    if (lastError) toast.error(lastError);
   }
 
   async function handleSave(input: SaveTransactionInput) {
@@ -279,6 +295,7 @@ export default function AddPage() {
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            multiple
             onChange={handleFileChange}
             className="hidden"
           />

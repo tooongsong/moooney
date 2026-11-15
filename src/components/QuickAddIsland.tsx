@@ -279,18 +279,25 @@ export function QuickAddIsland() {
     }
   }
 
-  async function extractImage(file: File) {
+  // One request per image (each stays under the server action's 5 MB body limit); the drafts are pooled.
+  async function extractImage(files: File[]) {
     setState('parsing');
     try {
-      const b64 = await imageToBase64(file);
-      const res  = await extractDraft({ imageBase64: b64 });
-      if (res.success && res.drafts.length > 0) {
-        if (handOffBatch(res.drafts)) return;
-        setDraft({ ...res.drafts[0], receiptImage: b64 });
+      const drafts: TransactionDraft[] = [];
+      let failed = 0;
+      for (const file of files) {
+        const res = await extractDraft({ imageBase64: await imageToBase64(file) });
+        if (res.success) drafts.push(...res.drafts);
+        else failed++;
+      }
+      if (failed && drafts.length > 0) toast.error(`Could not read ${failed} of ${files.length} images.`);
+      if (drafts.length > 0) {
+        if (handOffBatch(drafts)) return;
+        setDraft(drafts[0]);
         setState('reviewing');
       } else {
         setState('expanded');
-        toast.error(res.success ? 'Nothing found in image.' : 'Could not read image. Try a clearer photo or enter manually.');
+        toast.error(failed ? 'Could not read image. Try a clearer photo or enter manually.' : 'Nothing found in image.');
       }
     } catch {
       setState('expanded');
@@ -327,9 +334,9 @@ export function QuickAddIsland() {
   return (
     <>
       <input ref={cameraRef} type="file" accept="image/*" capture="environment"
-        className="hidden" onChange={(e) => { if (e.target.files?.[0]) extractImage(e.target.files[0]); e.target.value = ''; }} />
-      <input ref={fileRef} type="file" accept="image/*"
-        className="hidden" onChange={(e) => { if (e.target.files?.[0]) extractImage(e.target.files[0]); e.target.value = ''; }} />
+        className="hidden" onChange={(e) => { if (e.target.files?.[0]) extractImage([e.target.files[0]]); e.target.value = ''; }} />
+      <input ref={fileRef} type="file" accept="image/*" multiple
+        className="hidden" onChange={(e) => { if (e.target.files?.length) extractImage(Array.from(e.target.files)); e.target.value = ''; }} />
 
       {/* Goo filter: blurs the pill + bump together then re-sharpens the alpha edge,
           so two overlapping solid shapes render as one continuous organic blob. */}
