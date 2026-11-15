@@ -24,10 +24,13 @@ interface Row {
   date: string;
   type: TransactionType;
   description: string;
+  paymentMethod: string; // '' = none
   needsReview: boolean;
 }
 
-function draftToRow(draft: TransactionDraft): Row {
+function draftToRow(draft: TransactionDraft, paymentMethods: string[]): Row {
+  // The model reads whatever the statement prints ("Visa ••1234"); only keep it if it is one of the user's own.
+  const known = paymentMethods.find((n) => n.toLowerCase() === draft.paymentMethod?.trim().toLowerCase());
   return {
     included: true,
     amount: draft.amount != null ? String(draft.amount) : '',
@@ -36,6 +39,7 @@ function draftToRow(draft: TransactionDraft): Row {
     date: draft.date,
     type: draft.type,
     description: draft.description,
+    paymentMethod: known ?? '',
     needsReview: draft.needsReview,
   };
 }
@@ -49,17 +53,23 @@ const TYPE_OPTIONS: { value: TransactionType; label: string }[] = [
 interface BatchConfirmListProps {
   drafts: TransactionDraft[];
   categories: string[];
+  paymentMethods?: string[];
   onSave: (inputs: SaveTransactionInput[]) => Promise<void>;
   onCancel: () => void;
 }
 
-export function BatchConfirmList({ drafts, categories, onSave, onCancel }: BatchConfirmListProps) {
-  const [rows, setRows] = useState<Row[]>(() => drafts.map(draftToRow));
+// Radix Select has no empty value, so "no payment method" needs a stand-in.
+const NO_METHOD = '__none__';
+
+export function BatchConfirmList({ drafts, categories, paymentMethods = [], onSave, onCancel }: BatchConfirmListProps) {
+  const [rows, setRows] = useState<Row[]>(() => drafts.map((d) => draftToRow(d, paymentMethods)));
   const [expanded, setExpanded] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const selectedCount = rows.filter((r) => r.included).length;
   const allSelected = selectedCount === rows.length;
+  // What the "paid with" picker for the whole list shows: the shared method, or nothing when rows differ.
+  const sharedMethod = rows.every((r) => r.paymentMethod === rows[0].paymentMethod) ? rows[0].paymentMethod || NO_METHOD : '';
 
   function update(index: number, patch: Partial<Row>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -86,7 +96,7 @@ export function BatchConfirmList({ drafts, categories, onSave, onCancel }: Batch
           date: row.date,
           type: row.type,
           description: row.description.trim() || row.merchant.trim(),
-          paymentMethod: draft.paymentMethod || null,
+          paymentMethod: row.paymentMethod || null,
           items: draft.items || null,
           needsReview: false,
         }))
@@ -107,6 +117,26 @@ export function BatchConfirmList({ drafts, categories, onSave, onCancel }: Batch
           {allSelected ? 'Deselect all' : 'Select all'}
         </button>
       </div>
+
+      {paymentMethods.length > 0 && (
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-semibold uppercase tracking-widest text-ink-faint shrink-0">Paid with</span>
+          <Select
+            value={sharedMethod}
+            onValueChange={(v) => setRows((prev) => prev.map((r) => ({ ...r, paymentMethod: v === NO_METHOD ? '' : v })))}
+          >
+            <SelectTrigger className="rounded-lg border-line bg-paper-card w-full h-9 text-sm" aria-label="Payment method for all transactions">
+              <SelectValue placeholder="Mixed" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_METHOD}>None</SelectItem>
+              {paymentMethods.map((name) => (
+                <SelectItem key={name} value={name}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="border border-line bg-paper-card divide-y divide-line">
         {rows.map((row, i) => {
@@ -131,6 +161,12 @@ export function BatchConfirmList({ drafts, categories, onSave, onCancel }: Batch
                       <span className="truncate uppercase tracking-wide">{row.category}</span>
                       <span className="w-0.5 h-0.5 rounded-full bg-ink-faint shrink-0" />
                       <span className="shrink-0">{formatDate(row.date, { day: 'numeric', month: 'short' })}</span>
+                      {row.paymentMethod && (
+                        <>
+                          <span className="w-0.5 h-0.5 rounded-full bg-ink-faint shrink-0" />
+                          <span className="truncate">{row.paymentMethod}</span>
+                        </>
+                      )}
                       {row.needsReview && <span className="shrink-0 text-accent font-medium">· Review</span>}
                     </p>
                   </div>
@@ -195,6 +231,22 @@ export function BatchConfirmList({ drafts, categories, onSave, onCancel }: Batch
                       className="rounded-lg border-line bg-paper-card text-sm h-9"
                     />
                   </div>
+                  {paymentMethods.length > 0 && (
+                    <Select
+                      value={row.paymentMethod || NO_METHOD}
+                      onValueChange={(v) => update(i, { paymentMethod: v === NO_METHOD ? '' : v })}
+                    >
+                      <SelectTrigger className="rounded-lg border-line bg-paper-card w-full h-9 text-sm" aria-label="Payment method">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_METHOD}>No payment method</SelectItem>
+                        {paymentMethods.map((name) => (
+                          <SelectItem key={name} value={name}>{name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               )}
             </div>

@@ -219,6 +219,7 @@ export default function AddPage() {
           <BatchConfirmList
             drafts={drafts}
             categories={categories}
+            paymentMethods={paymentMethods}
             onSave={handleBatchSave}
             onCancel={reset}
           />
