@@ -248,11 +248,29 @@ export function QuickAddIsland() {
   }, [progress, state, openIsland, closeIsland]);
 
   // ── AI extraction ──────────────────────────────────────────────────────────
+  // The island reviews one transaction. Several (a statement screenshot) go to the Add page's
+  // batch list through the same sessionStorage key it restores from — keep in sync with
+  // PENDING_DRAFTS_KEY in app/add/page.tsx. The image is dropped: the batch list never shows
+  // it, and one copy per draft would overflow sessionStorage.
+  function handOffBatch(drafts: TransactionDraft[]): boolean {
+    if (drafts.length < 2) return false;
+    try {
+      sessionStorage.setItem('moooney_pending_drafts', JSON.stringify(drafts.map((d) => ({ ...d, receiptImage: null }))));
+    } catch {
+      toast.error(`Found ${drafts.length} transactions but could only keep the first — use Add for statements.`);
+      return false;
+    }
+    closeIsland();
+    router.push('/add');
+    return true;
+  }
+
   async function extractText() {
     if (!text.trim()) return;
     setState('parsing');
     const res = await extractDraft({ text: text.trim() });
     if (res.success && res.drafts.length > 0) {
+      if (handOffBatch(res.drafts)) return;
       setDraft(res.drafts[0]);
       setState('reviewing');
     } else {
@@ -267,6 +285,7 @@ export function QuickAddIsland() {
       const b64 = await imageToBase64(file);
       const res  = await extractDraft({ imageBase64: b64 });
       if (res.success && res.drafts.length > 0) {
+        if (handOffBatch(res.drafts)) return;
         setDraft({ ...res.drafts[0], receiptImage: b64 });
         setState('reviewing');
       } else {
