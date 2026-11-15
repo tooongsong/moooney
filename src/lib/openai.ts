@@ -42,6 +42,13 @@ export const ExtractionSchema = z.object({
 
 export type Extraction = z.infer<typeof TransactionExtractionSchema>;
 
+// The owner's merchant → category rules. Add a line here when a merchant keeps landing in the wrong category.
+const CATEGORY_GUIDE = `
+  - Groceries: supermarkets and warehouse/big-box stores — Whole Foods, Trader Joe's, Target, Costco, Safeway, Kroger, Sprouts, Aldi, H Mart, 99 Ranch, Weee!, Instacart, and similar.
+  - Car: anything for owning or running a car — Tesla (Supercharger, service, subscriptions), EV charging (ChargePoint, Electrify America, EVgo), gas stations (Shell, Chevron, 76), parking, tolls, car wash, repairs, car insurance, DMV.
+  - Transport: getting around without your own car — Uber, Lyft, taxis, public transit, trains, bike/scooter share.
+  - Food & Dining: restaurants, cafes, bars, takeout and delivery (DoorDash, Uber Eats).`.trimStart();
+
 export function buildExtractionSystemPrompt(): string {
   const today = toDateInputValue();
 
@@ -74,11 +81,13 @@ How many entries to return:
 
 Rules for each entry:
 - Category MUST be exactly one of: ${CATEGORIES.join(', ')}. If nothing fits well, use "Other".
+- Category guide — the owner's own rules, which win over your general judgment. Match merchants loosely: statements abbreviate and add store numbers (e.g. "WHOLEFDS MKT #10234", "TRADER JOE S", "TESLA SUPERCHARGER US").
+${CATEGORY_GUIDE}
 - "type" is "expense" for money spent, "income" for money received (salary, deposit), "refund" for a returned/refunded purchase. Default to "expense" only when the text clearly describes a purchase; otherwise use your best judgment or null.
 - "date": only return a date if one is explicitly present in the text or printed on the receipt/statement (resolving missing years per the rule above). If genuinely no date is mentioned at all, return null — the app will fill in today's date.
 - "paymentMethod": only fill this if a card type, "cash", or similar is explicitly visible. Otherwise null.
 - "items": only for a single receipt's line items. Never populate this for statement-derived entries.
-- "description" should be a short, natural phrase like "Lunch at Din Tai Fung" or "Home supplies at Target".
+- "description" should be a short, natural phrase like "Lunch at Din Tai Fung" or "Groceries at Trader Joe's".
 - NEVER invent or guess a value you are not reasonably confident about. If a field is unclear or missing, return null for it rather than making something up.
 - Return ONLY the JSON object, no markdown formatting, no commentary.`;
 }
