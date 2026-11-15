@@ -318,7 +318,8 @@ export function QuickAddIsland() {
       paymentMethod: draft.paymentMethod || null,
       notes:         null,
       items:         draft.items || null,
-      needsReview:   draft.needsReview || false,
+      // Saving is the review. Only an amount still missing (saved as 0) keeps the flag.
+      needsReview:   draft.amount == null,
     });
     if (res.success) {
       setState('success');

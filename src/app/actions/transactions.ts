@@ -157,7 +157,8 @@ export async function extractDraft(input: {
         type: t.type || 'expense',
         paymentMethod: t.paymentMethod,
         items: t.items,
-        needsReview: t.amount === null || t.merchant === null,
+        // Only a missing amount: plenty of real entries (rent, lunch) have no merchant.
+        needsReview: t.amount === null,
         rawInput: input.text || null,
         receiptImage: input.imageBase64 || null,
       };
