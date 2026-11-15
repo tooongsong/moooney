@@ -15,7 +15,8 @@ async function getUser() {
   return user;
 }
 import { openai, modelName, ExtractionSchema, buildExtractionSystemPrompt } from '@/lib/openai';
-import { CATEGORIES, DEFAULT_CATEGORY, BALANCE_ADJUSTMENT_TYPE, type TransactionType } from '@/lib/categories';
+import { DEFAULT_CATEGORY, BALANCE_ADJUSTMENT_TYPE, type TransactionType } from '@/lib/categories';
+import { getAllCategories } from '@/app/actions/manage';
 import { toDateInputValue } from '@/lib/utils';
 import { nowPartsIn, todayIn, monthRange, yearRange, safeTimeZone, toCalendarDate } from '@/lib/dates';
 import { aggregateTransactions } from '@/lib/spendingAggregate';
@@ -77,9 +78,12 @@ export async function extractDraft(input: {
     // [DEBUG] Stage 2: which model?
     console.log('[extractDraft] model:', modelName);
 
+    // The user's own list: built-ins they haven't hidden plus their custom categories.
+    const categories = await getAllCategories();
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const messages: any[] = [
-      { role: 'system', content: buildExtractionSystemPrompt() },
+      { role: 'system', content: buildExtractionSystemPrompt(categories) },
       {
         role: 'user',
         content: [
@@ -142,7 +146,7 @@ export async function extractDraft(input: {
 
     const drafts: TransactionDraft[] = usable.map((t) => {
       const category =
-        t.category && (CATEGORIES as readonly string[]).includes(t.category) ? t.category : DEFAULT_CATEGORY;
+        t.category && categories.includes(t.category) ? t.category : DEFAULT_CATEGORY;
 
       return {
         amount: t.amount,

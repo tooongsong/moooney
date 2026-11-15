@@ -42,15 +42,28 @@ export const ExtractionSchema = z.object({
 
 export type Extraction = z.infer<typeof TransactionExtractionSchema>;
 
-// The owner's merchant → category rules. Add a line here when a merchant keeps landing in the wrong category.
-const CATEGORY_GUIDE = `
-  - Groceries: supermarkets and warehouse/big-box stores — Whole Foods, Trader Joe's, Target, Costco, Safeway, Kroger, Sprouts, Aldi, H Mart, 99 Ranch, Weee!, Instacart, and similar.
-  - Car: anything for owning or running a car — Tesla (Supercharger, service, subscriptions), EV charging (ChargePoint, Electrify America, EVgo), gas stations (Shell, Chevron, 76), parking, tolls, car wash, repairs, car insurance, DMV.
-  - Transport: getting around without your own car — Uber, Lyft, taxis, public transit, trains, bike/scooter share.
-  - Food & Dining: restaurants, cafes, bars, takeout and delivery (DoorDash, Uber Eats).`.trimStart();
+// The owner's merchant → category rules, keyed by category name. A rule is only sent when that
+// category exists for the user (built-in and not hidden, or one of their custom categories).
+// Add a line here when a merchant keeps landing in the wrong category.
+const CATEGORY_GUIDE: Record<string, string> = {
+  'Groceries': "supermarkets and warehouse/big-box stores — Whole Foods, Trader Joe's, Target, Costco, Safeway, Kroger, Sprouts, Aldi, H Mart, 99 Ranch, Weee!, Instacart, and similar.",
+  'Car': 'anything for owning or running a car — Tesla (Supercharger, service, subscriptions), EV charging (ChargePoint, Electrify America, EVgo), gas stations (Shell, Chevron, 76), parking, tolls, car wash, repairs, car insurance, DMV.',
+  'Transport': 'getting around without your own car — Uber, Lyft, taxis, public transit, trains, bike/scooter share.',
+  'Food & Dining': 'restaurants, cafes, bars, takeout and delivery (DoorDash, Uber Eats).',
+  'Utility': 'electricity, water, gas, trash, internet and mobile phone service — PG&E, ConEd, Xfinity/Comcast, AT&T, Verizon, T-Mobile, Spectrum, and similar.',
+  'Rent': 'the rent payment itself.',
+  'Housing': "housing costs other than rent — mortgage, HOA, renter's or home insurance, security deposit.",
+  'Move': 'moving costs — movers, truck rental (U-Haul), storage, packing supplies.',
+  'Subscriptions': 'recurring digital subscriptions — Netflix, Spotify, iCloud, YouTube Premium, app and software subscriptions.',
+  'Bills': 'other recurring bills that no more specific category in the list covers — loan payments, bank and card fees, memberships.',
+};
 
-export function buildExtractionSystemPrompt(): string {
+export function buildExtractionSystemPrompt(categories: readonly string[] = CATEGORIES): string {
   const today = toDateInputValue();
+  const guide = categories
+    .filter((c) => CATEGORY_GUIDE[c])
+    .map((c) => `  - ${c}: ${CATEGORY_GUIDE[c]}`)
+    .join('\n');
 
   return `You extract personal financial transactions from either a short natural-language sentence, a photo of a single receipt, or a photo/screenshot of a bank or card statement listing many transactions.
 
@@ -80,9 +93,9 @@ How many entries to return:
 - A bank/card statement or transaction list showing several separate purchases (multiple distinct dates, merchants, and amounts, typically in a table or list format) → ONE entry PER distinct transaction line. This is the only case where you should return more than one entry.
 
 Rules for each entry:
-- Category MUST be exactly one of: ${CATEGORIES.join(', ')}. If nothing fits well, use "Other".
+- Category MUST be exactly one of: ${categories.join(', ')}. If nothing fits well, use "Other".
 - Category guide — the owner's own rules, which win over your general judgment. Match merchants loosely: statements abbreviate and add store numbers (e.g. "WHOLEFDS MKT #10234", "TRADER JOE S", "TESLA SUPERCHARGER US").
-${CATEGORY_GUIDE}
+${guide}
 - "type" is "expense" for money spent, "income" for money received (salary, deposit), "refund" for a returned/refunded purchase. Default to "expense" only when the text clearly describes a purchase; otherwise use your best judgment or null.
 - "date": only return a date if one is explicitly present in the text or printed on the receipt/statement (resolving missing years per the rule above). If genuinely no date is mentioned at all, return null — the app will fill in today's date.
 - "paymentMethod": only fill this if a card type, "cash", or similar is explicitly visible. Otherwise null.
