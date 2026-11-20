@@ -1,4 +1,5 @@
-import { pgTable, text, numeric, boolean, uuid, jsonb, timestamp, date } from 'drizzle-orm/pg-core';
+import { pgTable, text, numeric, boolean, uuid, jsonb, timestamp, date, integer } from 'drizzle-orm/pg-core';
+import type { CardRewards } from '../lib/bestCard';
 
 export const paymentMethods = pgTable('payment_methods', {
   id:              text('id').primaryKey(),
@@ -13,6 +14,10 @@ export const paymentMethods = pgTable('payment_methods', {
   startingBalance: numeric('starting_balance', { precision: 12, scale: 2 }).notNull().default('0').$type<number>(),
   currentBalance:  numeric('current_balance',  { precision: 12, scale: 2 }).notNull().default('0').$type<number>(),
   creditLimit:     numeric('credit_limit',      { precision: 12, scale: 2 }).$type<number | null>(),
+  // A credit card's cashback rates. Null = no rules. See src/lib/bestCard.ts.
+  rewards:         jsonb('rewards').$type<CardRewards | null>(),
+  // Day of the month a credit card's payment is due, 1–31. See src/lib/paymentDue.ts.
+  paymentDueDay:   integer('payment_due_day'),
   archivedAt:      timestamp('archived_at'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
   updatedAt:       timestamp('updated_at').notNull().defaultNow(),

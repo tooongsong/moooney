@@ -8,6 +8,7 @@ import { db } from '@/db';
 import { paymentMethods, customCategories, transactions, subscriptions, transfers } from '@/db/schema';
 import { CATEGORIES, DEFAULT_CATEGORY } from '@/lib/categories';
 import type { AccountType } from '@/lib/accountTypes';
+import { removeRewardCategory, renameRewardCategory, type CardRewards } from '@/lib/bestCard';
 import { createClient } from '@/lib/supabase/server';
 
 async function getUser() {
@@ -193,6 +194,22 @@ export async function addCustomCategory(name: string) {
   }
 }
 
+/** Applies `change` to every card's reward rules, writing only the cards it altered. */
+async function rewriteCardRewards(userId: string, change: (r: CardRewards) => CardRewards | null) {
+  const cards = await db.query.paymentMethods.findMany({
+    where: eq(paymentMethods.userId, userId),
+    columns: { id: true, rewards: true },
+  });
+  for (const card of cards) {
+    if (!card.rewards) continue;
+    const next = change(card.rewards);
+    if (next !== card.rewards) {
+      await db.update(paymentMethods).set({ rewards: next }).where(eq(paymentMethods.id, card.id));
+    }
+  }
+  revalidatePath('/accounts/best-card');
+}
+
 export async function renameCustomCategory(id: string, newName: string) {
   const user = await getUser();
   const trimmed = newName.trim();
@@ -209,6 +226,7 @@ export async function renameCustomCategory(id: string, newName: string) {
     .where(and(eq(transactions.userId, user.id), eq(transactions.category, cat.name)));
   await db.update(customCategories).set({ name: trimmed })
     .where(and(eq(customCategories.id, id), eq(customCategories.userId, user.id)));
+  await rewriteCardRewards(user.id, (r) => renameRewardCategory(r, cat.name, trimmed));
   revalidatePath('/manage');
   revalidatePath('/history');
   return { success: true };
@@ -223,6 +241,7 @@ export async function deleteCustomCategory(id: string) {
     // Reassign orphaned transactions to "Other" before deleting
     await db.update(transactions).set({ category: 'Other', updatedAt: new Date() })
       .where(and(eq(transactions.userId, user.id), eq(transactions.category, cat.name)));
+    await rewriteCardRewards(user.id, (r) => removeRewardCategory(r, cat.name));
   }
   await db.delete(customCategories).where(and(eq(customCategories.id, id), eq(customCategories.userId, user.id)));
   revalidatePath('/manage');

@@ -12,6 +12,8 @@ import { BALANCE_ADJUSTMENT_TYPE, BALANCE_ADJUSTMENT_CATEGORY } from '@/lib/cate
 import { createClient } from '@/lib/supabase/server';
 import { nowPartsIn, monthRange, todayIn, safeTimeZone, type CalendarDate } from '@/lib/dates';
 import { runningBalances } from '@/lib/ledger';
+import { cleanRewards, type CardRewards } from '@/lib/bestCard';
+import { isDueDay, nextDue, type NextDue } from '@/lib/paymentDue';
 import { or, desc, isNull, gte, lte } from 'drizzle-orm';
 
 async function getUser() {
@@ -42,6 +44,9 @@ export interface AccountBalance {
   startingBalance: number;
   balance: number;
   isLiability: boolean;
+  rewards: CardRewards | null;
+  paymentDueDay: number | null;
+  nextDue: NextDue | null;
 }
 
 export interface AccountDetail extends AccountBalance {
@@ -104,6 +109,19 @@ async function accountDeltas(userId: string): Promise<Map<string, number>> {
   return map;
 }
 
+/** The reward and due-date fields both account reads return. */
+function cardFields(
+  account: { type: string; rewards: CardRewards | null; paymentDueDay: number | null },
+  today: CalendarDate,
+) {
+  const isCard = account.type === 'credit_card';
+  return {
+    rewards:       isCard ? account.rewards ?? null : null,
+    paymentDueDay: isCard ? account.paymentDueDay ?? null : null,
+    nextDue:       isCard && account.paymentDueDay ? nextDue(account.paymentDueDay, today) : null,
+  };
+}
+
 export async function getAccountBalances(): Promise<AccountBalance[]> {
   const user = await getUser();
 
@@ -117,6 +135,8 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
   if (active.length === 0) return [];
 
   const deltas = await accountDeltas(user.id);
+
+  const today = todayIn(safeTimeZone(user.user_metadata?.timezone as string | undefined));
 
   return active.map((account) => {
     const sb = toNum(account.startingBalance, 'startingBalance');
@@ -132,6 +152,7 @@ export async function getAccountBalances(): Promise<AccountBalance[]> {
       startingBalance: sb,
       balance:         sb + delta,
       isLiability:     LIABILITY_TYPES.has(account.type),
+      ...cardFields(account, today),
     };
   });
 }
@@ -194,6 +215,7 @@ export async function getAccountDetail(id: string): Promise<AccountDetail | null
     startingBalance: sb,
     balance:         sb + delta,
     isLiability:     LIABILITY_TYPES.has(account.type),
+    ...cardFields(account, todayIn(tz)),
     thisMonthIn,
     thisMonthOut,
   };
@@ -365,4 +387,30 @@ export async function getMonthFlowAcrossAccounts(): Promise<{
       .format(new Date(Date.UTC(year, month - 1, 1)))
       .toUpperCase(),
   };
+}
+
+export async function updateCardSettings(
+  id: string,
+  input: { base: number; categories: Record<string, number>; dueDay: number | null },
+): Promise<{ success: true } | { success: false; error: string }> {
+  const user = await getUser();
+  const cleaned = cleanRewards(input);
+  if (!cleaned.ok) return { success: false, error: cleaned.error };
+  if (input.dueDay !== null && !isDueDay(input.dueDay)) {
+    return { success: false, error: 'The due day must be a whole number from 1 to 31.' };
+  }
+
+  const mine = and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id));
+  const account = await db.query.paymentMethods.findFirst({ where: mine, columns: { type: true } });
+  if (!account || account.type !== 'credit_card') {
+    return { success: false, error: 'These settings only apply to a credit card.' };
+  }
+
+  await db.update(paymentMethods)
+    .set({ rewards: cleaned.rewards, paymentDueDay: input.dueDay, updatedAt: new Date() })
+    .where(mine);
+  revalidatePath('/accounts');
+  revalidatePath(`/accounts/${id}`);
+  revalidatePath('/accounts/best-card');
+  return { success: true };
 }
