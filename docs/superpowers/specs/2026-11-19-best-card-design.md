@@ -1,7 +1,7 @@
 # Best Card — Design Spec
 
-Status: design approved in conversation on 2026-11-19. Awaiting review of this
-document before a plan is written.
+Status: design approved in conversation on 2026-11-19. Payment due date added
+the same day at the owner's request.
 
 ## Problem / Goal
 
@@ -12,6 +12,10 @@ groceries?" is answered from memory or not at all.
 Best Card records each credit card's cashback rates and turns them into one
 page that answers that question per category.
 
+The same cards carry a second question — "when is this one due?" — which the
+app also cannot answer today. Each card gets a payment due day, and the next
+due date is shown wherever the card is.
+
 ## The one rule everything else follows
 
 **A reward rate belongs to a card, and is keyed by the user's own categories.**
@@ -19,6 +23,9 @@ page that answers that question per category.
 No merchant rules, no dates, no caps. A card has a base rate and zero or more
 category rates. Everything on the Best Card page is derived from those numbers
 at read time; nothing derived is stored.
+
+The due date follows the same shape: the card stores a day of the month, and
+the next due date and the days until it are derived from today's date.
 
 ## Non-goals
 
@@ -38,13 +45,19 @@ all pay fixed category rates, so none is needed yet.
   faster and more accurate than recognising them.
 - **No built-in catalogue of known cards.** It would go stale and would not
   cover cards like 招行.
+- **No notifications.** The app has no push or email channel. A due date that
+  is near is shown in accent; nothing is sent.
+- **No statement closing date, minimum payment, or "paid" tracking.** The due
+  line turns accent when the date is within 7 days and the card has a balance
+  owed; paying the balance down is what clears it.
 
 ## Data
 
-One new nullable column on `payment_methods`:
+Two new nullable columns on `payment_methods`:
 
 ```
-rewards jsonb   -- { "base": number, "categories": { [category: string]: number } }
+rewards          jsonb    -- { "base": number, "categories": { [category: string]: number } }
+payment_due_day  integer  -- day of the month the payment is due, 1–31
 ```
 
 - Rates are percentages as plain numbers: `3` means 3%. Allowed range 0–100,
@@ -60,9 +73,13 @@ Why a column rather than a rules table: the rules are small, always read
 together with their card, and never queried on their own. A table would add a
 join and a second write path for three or four rows per card.
 
-Migration: `supabase/migrations/0006_card_rewards.sql`, one
-`alter table payment_methods add column if not exists rewards jsonb;`, plus the
-matching field in `src/db/schema.ts`.
+- `payment_due_day` is a whole number 1–31, or `null` when not set. In a month
+  shorter than the day (31 in February), the due date is that month's last day.
+  Like `rewards`, it is only read for credit cards.
+
+Migration: `supabase/migrations/0006_card_rewards.sql`, two
+`alter table payment_methods add column if not exists …` statements, plus the
+matching fields in `src/db/schema.ts`.
 
 ### Keeping category names in step
 
@@ -97,19 +114,44 @@ bestCards(cards, categories) -> { rows, fallback }
 - Cards with `rewards = null` are ignored. If no card has rules, `rows` is
   empty and `fallback` is null.
 
+## Next due date
+
+A pure function in `src/lib/paymentDue.ts`:
+
+```
+nextDue(dueDay, today) -> { date, daysAway }
+```
+
+- `today` is the user's calendar date in their time zone, as the rest of the
+  app computes it (`todayIn`).
+- The due date is this month's due day if it is today or later, otherwise next
+  month's. Either is clamped to the month's last day.
+- `daysAway` is 0 on the due date itself.
+- `isDueSoon(next, balance)`: true when `daysAway <= 7` and the card has a
+  balance owed (`balance < 0`). This is the only thing that turns the line
+  accent.
+
+The server computes `nextDue` once per account read and returns it with the
+account, so no screen does date arithmetic.
+
 ## Screens
 
 ### Rewards editor — on the credit card's detail page
 
 `/accounts/[id]`, a new "Rewards" section, rendered only for credit cards.
 
+- A "Payment due" field: day of the month, 1–31, optional.
 - A "Base" rate field.
 - A list of category → rate rows, each removable.
 - An "Add category" control: pick from the user's categories not already used
   on this card, enter a rate.
-- Saves through one new server action, `updateCardRewards(id, rewards)`, which
-  validates the range, checks the account belongs to the user and is a credit
-  card, and stores `null` when base is 0 and there are no category rates.
+- Saves through one new server action, `updateCardSettings(id, input)`, which
+  validates the rates and the due day, checks the account belongs to the user
+  and is a credit card, and stores `null` rewards when base is 0 and there are
+  no category rates.
+
+The same page shows the due line under the amount owed: "Due Nov 25 · in 6
+days", in accent when due soon.
 
 ### Best Card page — `/accounts/best-card`
 
@@ -121,9 +163,18 @@ Reached from a "Best card" link at the top of the Accounts page, beside
 - A final "Everything else" row from `fallback`.
 - Empty state, when no card has rules: the big-type empty state the rest of the
   app uses, with a link to the first credit card's detail page to add rates.
+- Below the rates, a "Payments due" list: every card with a due day, soonest
+  first, each with the same due line and the amount owed. Omitted when no card
+  has a due day. Shown even when no card has reward rules.
 - Uses the shared `PageHeader` with a back button to Accounts. Works on phone
   and desktop with the same single-column layout; no desktop side panel in this
   version.
+
+### Accounts list
+
+Each credit card row with a due day shows the due line under its name. When
+the card also has an institution, both sit on that one line, institution
+first, separated by " · ".
 
 Visual language follows the existing design direction: the rate is the
 graphic, labels are small, no cards-in-cards, no new colours. Accent is used
@@ -133,6 +184,8 @@ for the single highest rate on the page only.
 
 - Invalid rate (not a number, below 0, above 100): rejected by the action with
   a message; the editor keeps the user's input.
+- Invalid due day (not a whole number, below 1, above 31): rejected the same
+  way. An empty field clears the due day.
 - Account not found, not the user's, or not a credit card: the action returns
   an error and writes nothing.
 - A rule whose category no longer exists in the user's list is kept in storage
@@ -145,6 +198,9 @@ for the single highest rate on the page only.
   cards without rules; base only; category beats base; another card's base
   beats a category rate; ties list every card; categories outside the user's
   list are skipped; ordering.
+- `src/lib/paymentDue.test.ts`: before the day, on the day, after the day;
+  December rolling into January; day 31 in a 30-day month and in February;
+  due-soon needs both a near date and a balance owed.
 - Rename and delete of a custom category update the stored keys — covered by a
   small pure helper (`renameRewardCategory`, `removeRewardCategory`) with its
   own tests, called from the two actions.
@@ -156,13 +212,15 @@ for the single highest rate on the page only.
 New:
 - `supabase/migrations/0006_card_rewards.sql`
 - `src/lib/bestCard.ts`, `src/lib/bestCard.test.ts`
+- `src/lib/paymentDue.ts`, `src/lib/paymentDue.test.ts`
 - `src/components/CardRewardsEditor.tsx`
+- `src/components/PaymentDue.tsx` — the one due line all three screens use
 - `src/app/accounts/best-card/page.tsx`
 
 Changed:
-- `src/db/schema.ts` — the column.
-- `src/app/actions/accounts.ts` — `updateCardRewards`, and `rewards` on the
-  account detail it already returns.
+- `src/db/schema.ts` — the two columns.
+- `src/app/actions/accounts.ts` — `updateCardSettings`, and `rewards`,
+  `paymentDueDay` and `nextDue` on the account shapes it already returns.
 - `src/app/actions/manage.ts` — rename and delete carry the rules.
-- `src/app/accounts/[id]/page.tsx` — the Rewards section.
-- `src/app/accounts/page.tsx` — the "Best card" link.
+- `src/app/accounts/[id]/page.tsx` — the Rewards section and the due line.
+- `src/app/accounts/page.tsx` — the "Best card" link and the due line.
