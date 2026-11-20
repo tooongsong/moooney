@@ -5,6 +5,9 @@ import { AccountTypeIcon } from '@/components/AccountTypeIcon';
 import { AccountLedger } from '@/components/AccountLedger';
 import { BottomNav } from '@/components/BottomNav';
 import { EditBalanceDialog } from '@/components/EditBalanceDialog';
+import { CardRewardsEditor } from '@/components/CardRewardsEditor';
+import { PaymentDue } from '@/components/PaymentDue';
+import { getAllCategories } from '@/app/actions/manage';
 import { getAccountDetail, getAccountLedger } from '@/app/actions/accounts';
 import { formatCurrency } from '@/lib/utils';
 import { ResponsiveAmount } from '@/components/ResponsiveAmount';
@@ -15,9 +18,10 @@ export default async function AccountDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [detail, ledger] = await Promise.all([
+  const [detail, ledger, categories] = await Promise.all([
     getAccountDetail(id),
     getAccountLedger(id),
+    getAllCategories(),
   ]);
 
   if (!detail || !ledger) notFound();
@@ -68,6 +72,11 @@ export default async function AccountDetailPage({
             {formatCurrency(detail.creditLimit + detail.balance)} available of {formatCurrency(detail.creditLimit)} limit
           </p>
         )}
+        {detail.nextDue && (
+          <p className="text-xs font-semibold mt-2">
+            <PaymentDue next={detail.nextDue} balance={detail.balance} />
+          </p>
+        )}
       </section>
 
       {/* This month summary */}
@@ -81,6 +90,18 @@ export default async function AccountDetailPage({
           <p className="text-lg font-bold text-accent tabular-nums">{formatCurrency(detail.thisMonthOut)}</p>
         </div>
       </section>
+
+      {detail.type === 'credit_card' && (
+        <section className="py-6 border-b border-line">
+          <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-4">Rewards &amp; due date</p>
+          <CardRewardsEditor
+            accountId={detail.id}
+            initial={detail.rewards}
+            initialDueDay={detail.paymentDueDay}
+            categories={categories}
+          />
+        </section>
+      )}
 
       {/* Transaction history */}
       <section className="pt-6">
