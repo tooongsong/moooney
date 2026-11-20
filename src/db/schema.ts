@@ -18,6 +18,8 @@ export const paymentMethods = pgTable('payment_methods', {
   rewards:         jsonb('rewards').$type<CardRewards | null>(),
   // Day of the month a credit card's payment is due, 1–31. See src/lib/paymentDue.ts.
   paymentDueDay:   integer('payment_due_day'),
+  // Free text for a credit card's fine print. Shown as written, never parsed.
+  notes:           text('notes'),
   archivedAt:      timestamp('archived_at'),
   createdAt:       timestamp('created_at').notNull().defaultNow(),
   updatedAt:       timestamp('updated_at').notNull().defaultNow(),

@@ -414,3 +414,30 @@ export async function updateCardSettings(
   revalidatePath('/accounts/best-card');
   return { success: true };
 }
+
+const NOTES_MAX = 20000;
+
+export async function getCardNotes(id: string): Promise<{ name: string; notes: string } | null> {
+  const user = await getUser();
+  const card = await db.query.paymentMethods.findFirst({
+    where: and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id), eq(paymentMethods.type, 'credit_card')),
+    columns: { name: true, notes: true },
+  });
+  return card ? { name: card.name, notes: card.notes ?? '' } : null;
+}
+
+export async function updateCardNotes(
+  id: string,
+  notes: string,
+): Promise<{ success: true } | { success: false; error: string }> {
+  const user = await getUser();
+  const text = notes.trim();
+  if (text.length > NOTES_MAX) return { success: false, error: `Keep it under ${NOTES_MAX} characters.` };
+  const saved = await db.update(paymentMethods)
+    .set({ notes: text || null, updatedAt: new Date() })
+    .where(and(eq(paymentMethods.id, id), eq(paymentMethods.userId, user.id), eq(paymentMethods.type, 'credit_card')))
+    .returning({ id: paymentMethods.id });
+  if (saved.length === 0) return { success: false, error: 'Card not found.' };
+  revalidatePath(`/accounts/${id}/details`);
+  return { success: true };
+}

@@ -15,7 +15,14 @@ function Row({ label, pick, accent }: { label: string; pick: BestCardPick; accen
     <div className="flex items-end justify-between gap-4 py-5 border-b border-line">
       <div className="min-w-0 pb-1">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-ink-soft mb-1">{label}</p>
-        <p className="text-base font-semibold text-ink break-words">{pick.cards.map((c) => c.name).join(" · ")}</p>
+        <p className="text-base font-semibold text-ink break-words">
+          {pick.cards.map((c, i) => (
+            <span key={c.id}>
+              {i > 0 && ' · '}
+              <Link href={`/accounts/${c.id}/details`} className="underline decoration-line underline-offset-4">{c.name}</Link>
+            </span>
+          ))}
+        </p>
       </div>
       <p className={`shrink-0 text-5xl font-bold tracking-tighter leading-none tabular-nums ${accent ? 'text-accent' : 'text-ink'}`}>
         {formatRate(pick.rate)}

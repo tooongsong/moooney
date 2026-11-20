@@ -93,7 +93,13 @@ export default async function AccountDetailPage({
 
       {detail.type === 'credit_card' && (
         <section className="py-6 border-b border-line">
-          <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft mb-4">Rewards &amp; due date</p>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-ink-soft">Rewards &amp; due date</p>
+            <Link href={`/accounts/${detail.id}/details`}
+              className="text-xs font-semibold uppercase tracking-widest text-ink underline underline-offset-4">
+              Details
+            </Link>
+          </div>
           <CardRewardsEditor
             accountId={detail.id}
             initial={detail.rewards}
