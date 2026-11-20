@@ -77,18 +77,18 @@ export default function LoginPage() {
         </div>
 
         {/* Mode toggle */}
-        <div className="flex rounded-lg border-2 border-line overflow-hidden">
+        <div className="flex h-11 rounded-lg border border-line overflow-hidden">
           <button
             type="button"
             onClick={() => switchMode('login')}
-            className={`flex-1 py-2 text-sm font-semibold transition-colors ${mode === 'login' ? 'bg-ink text-paper' : 'bg-paper text-ink-faint hover:text-ink'}`}
+            className={`flex-1 text-sm font-semibold transition-colors ${mode === 'login' ? 'bg-ink text-paper' : 'bg-paper text-ink-faint hover:text-ink'}`}
           >
             Sign in
           </button>
           <button
             type="button"
             onClick={() => switchMode('signup')}
-            className={`flex-1 py-2 text-sm font-semibold transition-colors ${mode === 'signup' ? 'bg-ink text-paper' : 'bg-paper text-ink-faint hover:text-ink'}`}
+            className={`flex-1 text-sm font-semibold transition-colors ${mode === 'signup' ? 'bg-ink text-paper' : 'bg-paper text-ink-faint hover:text-ink'}`}
           >
             Sign up
           </button>
@@ -101,7 +101,7 @@ export default function LoginPage() {
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-4 py-2.5 border-2 border-line rounded-lg bg-paper text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:border-ink"
+            className="h-11 w-full min-w-0 px-4 border border-line rounded-lg bg-paper-card text-base md:text-sm text-ink placeholder:text-ink-faint outline-none focus-visible:border-ink"
           />
           <input
             type="password"
@@ -109,7 +109,7 @@ export default function LoginPage() {
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-4 py-2.5 border-2 border-line rounded-lg bg-paper text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:border-ink"
+            className="h-11 w-full min-w-0 px-4 border border-line rounded-lg bg-paper-card text-base md:text-sm text-ink placeholder:text-ink-faint outline-none focus-visible:border-ink"
           />
 
           {error && (
@@ -122,7 +122,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-ink text-paper font-semibold rounded-lg text-sm hover:bg-ink/90 active:scale-95 transition-all disabled:opacity-50"
+            className="w-full h-11 bg-ink text-paper font-semibold rounded-lg text-sm hover:bg-ink/90 active:scale-95 transition-all disabled:opacity-50"
           >
             {loading ? '…' : mode === 'login' ? 'Sign in' : 'Create account'}
           </button>

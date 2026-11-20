@@ -202,7 +202,6 @@ export function ManageList({
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onEnter}
           placeholder={placeholder}
-          className="rounded-xl border-line bg-paper-card text-sm h-10"
         />
         {withStartingBalance && (
           <Input
@@ -211,14 +210,14 @@ export function ManageList({
             onKeyDown={onEnter}
             inputMode="decimal"
             placeholder="Balance"
-            className="rounded-xl border-line bg-paper-card text-sm h-10 w-24 shrink-0"
+            className="w-24 shrink-0"
           />
         )}
         <button
           type="button"
           onClick={handleAdd}
           disabled={!value.trim() || isAdding}
-          className="w-10 h-10 shrink-0 rounded-xl bg-accent text-white flex items-center justify-center disabled:opacity-30 active:scale-95 transition-transform"
+          className="w-11 h-11 shrink-0 rounded-lg bg-accent text-white flex items-center justify-center disabled:opacity-30 active:scale-95 transition-transform"
         >
           {isAdding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
         </button>
@@ -233,7 +232,7 @@ export function ManageList({
               type="button"
               onClick={() => setTypeValue(t.value)}
               className={cn(
-                'flex items-center gap-1.5 text-xs px-3 py-1.5 transition-colors',
+                'flex items-center gap-1.5 text-xs rounded-full px-3 py-1.5 transition-colors',
                 typeValue === t.value ? 'bg-accent text-white' : 'bg-sand text-ink-soft'
               )}
             >
@@ -252,7 +251,6 @@ export function ManageList({
             onChange={(e) => setInstitutionValue(e.target.value)}
             onKeyDown={onEnter}
             placeholder="Institution (optional)"
-            className="rounded-xl border-line bg-paper-card text-sm h-10"
           />
           {isCreditCard && (
             <Input
@@ -261,7 +259,7 @@ export function ManageList({
               onKeyDown={onEnter}
               inputMode="decimal"
               placeholder="Credit limit"
-              className="rounded-xl border-line bg-paper-card text-sm h-10 w-32 shrink-0"
+              className="w-32 shrink-0"
             />
           )}
         </div>
@@ -280,7 +278,7 @@ export function ManageList({
                 onPointerLeave={cancelPress}
                 onContextMenu={(e) => { e.preventDefault(); setArmed(true); }}
                 className={cn(
-                  'text-xs font-semibold uppercase tracking-wide text-ink-soft bg-sand px-3 py-1.5',
+                  'text-xs font-semibold uppercase tracking-wide text-ink-soft bg-sand rounded-full px-3 py-1.5',
                   'select-none touch-none',
                   armed && 'ring-1 ring-inset ring-ink/20',
                 )}
@@ -313,11 +311,11 @@ export function ManageList({
                 type="button"
                 onClick={() => handleShow(name)}
                 disabled={busyBuiltIn === name}
-                className="text-xs font-semibold uppercase tracking-wide text-ink-faint bg-sand/50 px-3 py-1.5 select-none disabled:opacity-40 line-through decoration-ink-faint"
+                className="text-xs font-semibold uppercase tracking-wide text-ink-faint bg-sand/50 rounded-full px-3 py-1.5 select-none disabled:opacity-40 line-through decoration-ink-faint"
               >
                 {name}
               </button>
-              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink text-white flex items-center justify-center shadow-sm pointer-events-none">
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ink text-paper flex items-center justify-center pointer-events-none">
                 {busyBuiltIn === name
                   ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
                   : <Plus className="h-2.5 w-2.5" strokeWidth={3} />}
@@ -336,13 +334,13 @@ export function ManageList({
                     if (e.key === 'Enter') { e.preventDefault(); saveEdit(item.id); }
                     if (e.key === 'Escape') setEditingId(null);
                   }}
-                  className="h-[30px] w-36 text-xs"
+                  className="w-40"
                 />
                 <button
                   type="button"
                   onClick={() => saveEdit(item.id)}
                   disabled={isSavingEdit || !editName.trim()}
-                  className="w-[30px] h-[30px] shrink-0 bg-ink text-white flex items-center justify-center disabled:opacity-40"
+                  className="w-11 h-11 shrink-0 rounded-lg bg-ink text-paper flex items-center justify-center disabled:opacity-40"
                 >
                   {isSavingEdit ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
                 </button>
@@ -357,7 +355,7 @@ export function ManageList({
                   onContextMenu={(e) => { e.preventDefault(); setArmed(true); }}
                   onClick={() => { if (armed && onRename) startEdit(item); }}
                   className={cn(
-                    'text-xs font-semibold uppercase tracking-wide text-ink-soft bg-sand px-3 py-1.5',
+                    'text-xs font-semibold uppercase tracking-wide text-ink-soft bg-sand rounded-full px-3 py-1.5',
                     'select-none touch-none',
                     armed && 'ring-1 ring-inset ring-ink/20',
                   )}
@@ -407,7 +405,7 @@ export function ManageList({
                     onChange={(e) => setEditName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(item.id); if (e.key === 'Escape') setEditingId(null); }}
                     placeholder="Name"
-                    className="rounded-lg border-line bg-paper text-sm h-9"
+                    className="bg-paper"
                     autoFocus
                   />
                   {withAccountType && (
@@ -419,7 +417,7 @@ export function ManageList({
                             type="button"
                             onClick={() => setEditType(t.value)}
                             className={cn(
-                              'flex items-center gap-1 text-[10px] px-2 py-1 transition-colors',
+                              'flex items-center gap-1 text-[10px] rounded-full px-2.5 py-1 transition-colors',
                               editType === t.value ? 'bg-accent text-white' : 'bg-sand text-ink-soft'
                             )}
                           >
@@ -432,7 +430,7 @@ export function ManageList({
                         value={editInstitution}
                         onChange={(e) => setEditInstitution(e.target.value)}
                         placeholder="Institution (optional)"
-                        className="rounded-lg border-line bg-paper text-sm h-9"
+                        className="bg-paper"
                       />
                     </>
                   )}
@@ -440,7 +438,7 @@ export function ManageList({
                     <button
                       type="button"
                       onClick={() => setEditingId(null)}
-                      className="flex-1 h-8 text-[10px] font-bold uppercase tracking-widest text-ink-faint bg-sand rounded-lg flex items-center justify-center"
+                      className="flex-1 h-11 text-[10px] font-bold uppercase tracking-widest text-ink-soft bg-sand rounded-lg flex items-center justify-center"
                     >
                       Cancel
                     </button>
@@ -448,7 +446,7 @@ export function ManageList({
                       type="button"
                       onClick={() => saveEdit(item.id)}
                       disabled={isSavingEdit || !editName.trim()}
-                      className="flex-1 h-8 text-[10px] font-bold uppercase tracking-widest text-white bg-ink rounded-lg disabled:opacity-40 flex items-center justify-center"
+                      className="flex-1 h-11 text-[10px] font-bold uppercase tracking-widest text-paper bg-ink rounded-lg disabled:opacity-40 flex items-center justify-center"
                     >
                       {isSavingEdit ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                     </button>

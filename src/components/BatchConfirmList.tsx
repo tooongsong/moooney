@@ -125,7 +125,7 @@ export function BatchConfirmList({ drafts, categories, paymentMethods = [], onSa
             value={sharedMethod}
             onValueChange={(v) => setRows((prev) => prev.map((r) => ({ ...r, paymentMethod: v === NO_METHOD ? '' : v })))}
           >
-            <SelectTrigger className="rounded-lg border-line bg-paper-card w-full h-9 text-sm" aria-label="Payment method for all transactions">
+            <SelectTrigger aria-label="Payment method for all transactions">
               <SelectValue placeholder="Mixed" />
             </SelectTrigger>
             <SelectContent>
@@ -138,7 +138,7 @@ export function BatchConfirmList({ drafts, categories, paymentMethods = [], onSa
         </div>
       )}
 
-      <div className="border border-line bg-paper-card divide-y divide-line">
+      <div className="rounded-2xl border border-line bg-paper-card divide-y divide-line overflow-hidden">
         {rows.map((row, i) => {
           const isOpen = expanded === i;
           return (
@@ -188,7 +188,7 @@ export function BatchConfirmList({ drafts, categories, paymentMethods = [], onSa
                         type="button"
                         onClick={() => update(i, { type: opt.value })}
                         className={cn(
-                          'flex-1 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors',
+                          'flex-1 h-11 rounded-lg text-xs font-semibold uppercase tracking-wide transition-colors',
                           row.type === opt.value ? 'bg-accent text-white' : 'bg-sand text-ink-soft'
                         )}
                       >
@@ -202,18 +202,16 @@ export function BatchConfirmList({ drafts, categories, paymentMethods = [], onSa
                       value={row.amount}
                       onChange={(e) => update(i, { amount: e.target.value.replace(/[^0-9.]/g, '') })}
                       placeholder="Amount"
-                      className="rounded-lg border-line bg-paper-card text-sm h-9"
                     />
                     <Input
                       value={row.merchant}
                       onChange={(e) => update(i, { merchant: e.target.value })}
                       placeholder="Merchant"
-                      className="rounded-lg border-line bg-paper-card text-sm h-9"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <Select value={row.category} onValueChange={(v) => update(i, { category: v })}>
-                      <SelectTrigger className="rounded-lg border-line bg-paper-card w-full h-9 text-sm">
+                      <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -228,7 +226,6 @@ export function BatchConfirmList({ drafts, categories, paymentMethods = [], onSa
                       type="date"
                       value={row.date}
                       onChange={(e) => update(i, { date: e.target.value })}
-                      className="rounded-lg border-line bg-paper-card text-sm h-9"
                     />
                   </div>
                   {paymentMethods.length > 0 && (
@@ -236,7 +233,7 @@ export function BatchConfirmList({ drafts, categories, paymentMethods = [], onSa
                       value={row.paymentMethod || NO_METHOD}
                       onValueChange={(v) => update(i, { paymentMethod: v === NO_METHOD ? '' : v })}
                     >
-                      <SelectTrigger className="rounded-lg border-line bg-paper-card w-full h-9 text-sm" aria-label="Payment method">
+                      <SelectTrigger aria-label="Payment method">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -255,7 +252,7 @@ export function BatchConfirmList({ drafts, categories, paymentMethods = [], onSa
       </div>
 
       <div className="flex gap-3">
-        <Button type="button" variant="outline" className="flex-1 h-12 border-line" onClick={onCancel} disabled={isSaving}>
+        <Button type="button" variant="outline" className="flex-1 h-12" onClick={onCancel} disabled={isSaving}>
           Cancel
         </Button>
         <Button

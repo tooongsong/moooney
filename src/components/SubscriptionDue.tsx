@@ -83,7 +83,7 @@ export function SubscriptionDue({ due }: { due: DuePayment[] }) {
               value={amounts[key] ?? d.amount.toFixed(2)}
               onChange={(e) => setAmounts((prev) => ({ ...prev, [key]: e.target.value }))}
               inputMode="decimal"
-              className="h-8 w-24 shrink-0 text-right text-sm tabular-nums"
+              className="w-24 shrink-0 text-right tabular-nums"
             />
             <button
               type="button"

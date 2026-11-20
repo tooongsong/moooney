@@ -64,7 +64,7 @@ export default function UpdatePasswordPage() {
               placeholder="New password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 border-2 border-line rounded-lg bg-paper text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:border-ink"
+              className="h-11 w-full min-w-0 px-4 border border-line rounded-lg bg-paper-card text-base md:text-sm text-ink placeholder:text-ink-faint outline-none focus-visible:border-ink"
             />
             <input
               type="password"
@@ -72,7 +72,7 @@ export default function UpdatePasswordPage() {
               placeholder="Confirm new password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              className="w-full px-4 py-2.5 border-2 border-line rounded-lg bg-paper text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:border-ink"
+              className="h-11 w-full min-w-0 px-4 border border-line rounded-lg bg-paper-card text-base md:text-sm text-ink placeholder:text-ink-faint outline-none focus-visible:border-ink"
             />
             {submitError && (
               <p className="text-xs text-accent bg-accent/10 rounded-lg px-3 py-2">{submitError}</p>
@@ -80,7 +80,7 @@ export default function UpdatePasswordPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-ink text-paper font-semibold rounded-lg text-sm hover:bg-ink/90 active:scale-95 transition-all disabled:opacity-50"
+              className="w-full h-11 bg-ink text-paper font-semibold rounded-lg text-sm hover:bg-ink/90 active:scale-95 transition-all disabled:opacity-50"
             >
               {loading ? 'Saving…' : 'Set password'}
             </button>

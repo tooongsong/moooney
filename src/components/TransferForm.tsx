@@ -96,7 +96,7 @@ export function TransferForm({ initial, accounts, saveLabel, onSave, onCancel }:
                 onClick={() => set('fromAccount', name)}
                 disabled={name === values.toAccount}
                 className={cn(
-                  'flex items-center gap-1.5 text-xs px-3 py-1.5 transition-colors disabled:opacity-30',
+                  'flex items-center gap-1.5 text-xs rounded-full px-3 py-1.5 transition-colors disabled:opacity-30',
                   values.fromAccount === name ? 'bg-accent text-white' : 'bg-sand text-ink-soft'
                 )}
               >
@@ -122,7 +122,7 @@ export function TransferForm({ initial, accounts, saveLabel, onSave, onCancel }:
                 onClick={() => set('toAccount', name)}
                 disabled={name === values.fromAccount}
                 className={cn(
-                  'flex items-center gap-1.5 text-xs px-3 py-1.5 transition-colors disabled:opacity-30',
+                  'flex items-center gap-1.5 text-xs rounded-full px-3 py-1.5 transition-colors disabled:opacity-30',
                   values.toAccount === name ? 'bg-accent text-white' : 'bg-sand text-ink-soft'
                 )}
               >
@@ -143,7 +143,7 @@ export function TransferForm({ initial, accounts, saveLabel, onSave, onCancel }:
             <Label htmlFor="date" className="text-xs font-semibold uppercase tracking-widest text-ink-faint">
               Date
             </Label>
-            <Input id="date" type="date" value={values.date} onChange={(e) => set('date', e.target.value)} className="border-line bg-paper-card" />
+            <Input id="date" type="date" value={values.date} onChange={(e) => set('date', e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="note" className="text-xs font-semibold uppercase tracking-widest text-ink-faint">
@@ -154,7 +154,6 @@ export function TransferForm({ initial, accounts, saveLabel, onSave, onCancel }:
               value={values.note}
               onChange={(e) => set('note', e.target.value)}
               placeholder="Optional"
-              className="border-line bg-paper-card"
             />
           </div>
         </div>
@@ -162,7 +161,7 @@ export function TransferForm({ initial, accounts, saveLabel, onSave, onCancel }:
 
       <div className="flex gap-3 pt-2">
         {onCancel && (
-          <Button type="button" variant="outline" className="flex-1 h-12 border-line" onClick={onCancel} disabled={isSaving}>
+          <Button type="button" variant="outline" className="flex-1 h-12" onClick={onCancel} disabled={isSaving}>
             Cancel
           </Button>
         )}

@@ -246,3 +246,17 @@
      breakpoint, so a phone never renders the panel at all. */
   .d-desktop-only { display: block; }
 }
+
+/* iOS draws date inputs with its own minimum width, padding and centred text,
+   so one sitting in a two-column grid pushes past its cell and stands taller
+   than the field beside it. Stripping the native appearance makes it obey the
+   same box as every other field. */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  max-width: 100%;
+}
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}

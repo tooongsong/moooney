@@ -301,20 +301,19 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
                         }
                       }}
                       placeholder="New category"
-                      className="h-9"
-                    />
+                                          />
                     <button
                       type="button"
                       onClick={confirmNewCategory}
                       disabled={!newCategory.trim() || savingCategory}
-                      className="w-9 h-9 shrink-0 bg-accent text-white flex items-center justify-center disabled:opacity-30"
+                      className="w-11 h-11 shrink-0 rounded-lg bg-accent text-white flex items-center justify-center disabled:opacity-30"
                     >
                       {savingCategory ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                     </button>
                     <button
                       type="button"
                       onClick={() => { setAddingCategory(false); setNewCategory(''); }}
-                      className="w-9 h-9 shrink-0 border border-line text-ink-soft flex items-center justify-center"
+                      className="w-11 h-11 shrink-0 rounded-lg border border-line text-ink-soft flex items-center justify-center"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -433,7 +432,7 @@ export function SubscriptionDialog({ subscription, today, categories, accounts, 
           </p>
         )}
 
-        <Button onClick={handleSave} disabled={saving} className="w-full">
+        <Button onClick={handleSave} disabled={saving} className="w-full h-12 bg-accent hover:bg-accent/90 text-white text-sm font-semibold uppercase tracking-widest">
           {saving && <Loader2 className="h-4 w-4 animate-spin" />}
           {subscription ? 'Save' : 'Add subscription'}
         </Button>

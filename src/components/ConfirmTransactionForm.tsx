@@ -167,7 +167,6 @@ export function ConfirmTransactionForm({
             value={values.merchant}
             onChange={(e) => set('merchant', e.target.value)}
             placeholder="e.g. Target"
-            className="border-line bg-paper-card text-base"
           />
         </div>
 
@@ -187,13 +186,12 @@ export function ConfirmTransactionForm({
                     }
                   }}
                   placeholder="New category"
-                  className="border-line bg-paper-card h-9"
                 />
                 <button
                   type="button"
                   onClick={confirmNewCategory}
                   disabled={!newCategory.trim() || isSavingCategory}
-                  className="w-9 h-9 shrink-0 bg-accent text-white flex items-center justify-center disabled:opacity-30"
+                  className="w-11 h-11 shrink-0 rounded-lg bg-accent text-white flex items-center justify-center disabled:opacity-30"
                 >
                   {isSavingCategory ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                 </button>
@@ -203,7 +201,7 @@ export function ConfirmTransactionForm({
                     setIsAddingCategory(false);
                     setNewCategory('');
                   }}
-                  className="w-9 h-9 shrink-0 border border-line text-ink-soft flex items-center justify-center"
+                  className="w-11 h-11 shrink-0 rounded-lg border border-line text-ink-soft flex items-center justify-center"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -213,7 +211,7 @@ export function ConfirmTransactionForm({
                 value={values.category}
                 onValueChange={(v) => (v === ADD_CATEGORY_VALUE ? setIsAddingCategory(true) : set('category', v))}
               >
-                <SelectTrigger className="border-line bg-paper-card w-full">
+                <SelectTrigger>
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
                 <SelectContent>
@@ -238,7 +236,6 @@ export function ConfirmTransactionForm({
               type="date"
               value={values.date}
               onChange={(e) => set('date', e.target.value)}
-              className="border-line bg-paper-card"
             />
           </div>
         </div>
@@ -255,7 +252,6 @@ export function ConfirmTransactionForm({
             value={values.paymentMethod}
             onChange={(e) => set('paymentMethod', e.target.value)}
             placeholder="e.g. Chase Sapphire, Cash"
-            className="border-line bg-paper-card"
           />
           {paymentMethods.length > 0 && (
             <div className="flex flex-wrap gap-2 pt-1">
@@ -265,7 +261,7 @@ export function ConfirmTransactionForm({
                   type="button"
                   onClick={() => set('paymentMethod', name)}
                   className={cn(
-                    'text-xs px-3 py-1.5 transition-colors',
+                    'text-xs rounded-full px-3 py-1.5 transition-colors',
                     values.paymentMethod === name ? 'bg-accent text-white' : 'bg-sand text-ink-soft'
                   )}
                 >
@@ -292,7 +288,6 @@ export function ConfirmTransactionForm({
                 id="description"
                 value={values.description}
                 onChange={(e) => set('description', e.target.value)}
-                className="border-line bg-paper-card"
               />
             </div>
             <div className="space-y-1.5">
@@ -301,13 +296,13 @@ export function ConfirmTransactionForm({
                 id="notes"
                 value={values.notes}
                 onChange={(e) => set('notes', e.target.value)}
-                className="border-line bg-paper-card min-h-[70px] resize-none"
+                className="min-h-[70px] resize-none"
               />
             </div>
             {values.items && values.items.length > 0 && (
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-widest text-ink-faint">Items found on receipt</Label>
-                <div className="border border-line divide-y divide-line">
+                <div className="rounded-lg border border-line divide-y divide-line overflow-hidden">
                   {values.items.map((item, i) => (
                     <div key={i} className="flex justify-between px-3 py-2 text-sm">
                       <span className="text-ink-soft truncate pr-2">{item.name}</span>
@@ -325,7 +320,7 @@ export function ConfirmTransactionForm({
 
       <div className="flex gap-3 pt-2">
         {onCancel && (
-          <Button type="button" variant="outline" className="flex-1 h-12 border-line" onClick={onCancel} disabled={isSaving}>
+          <Button type="button" variant="outline" className="flex-1 h-12" onClick={onCancel} disabled={isSaving}>
             Cancel
           </Button>
         )}

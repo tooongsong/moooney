@@ -11,7 +11,10 @@ import type { CardRewards } from '@/lib/bestCard';
 interface Row { category: string; rate: string }
 
 const onlyRate = (v: string) => v.replace(/[^0-9.]/g, '');
-const FIELD = 'rounded-lg border-line bg-paper-card text-sm h-9 tabular-nums';
+const FIELD = 'text-right tabular-nums';
+const UNIT = 'text-sm text-ink-soft';
+// label | 5rem field | unit | 2.75rem action. Empty trailing cells keep the columns.
+const ROW = 'grid grid-cols-[minmax(0,1fr)_5rem_0.75rem_2.75rem] items-center gap-2';
 const LABEL = 'text-[10px] font-semibold uppercase tracking-widest text-ink-soft';
 
 export function CardRewardsEditor({
@@ -49,48 +52,46 @@ export function CardRewardsEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <label htmlFor="card-due-day" className={LABEL}>Payment due · day of month</label>
+      {/* One grid for every row — label | field | unit | action — so the fields
+          share a column and line up whatever sits beside them. */}
+      <div className={ROW}>
+        <label htmlFor="card-due-day" className={LABEL}>Payment due day</label>
         <Input id="card-due-day" inputMode="numeric" value={dueDay} placeholder="—"
           onChange={(e) => setDueDay(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))}
-          className={`${FIELD} w-20 text-right`} />
+          className={FIELD} />
       </div>
 
-      <div className="flex items-center justify-between gap-3">
+      <div className={ROW}>
         <label htmlFor="rewards-base" className={LABEL}>Base · everything else</label>
-        <span className="flex items-center gap-1.5">
-          <Input id="rewards-base" inputMode="decimal" value={base} placeholder="0"
-            onChange={(e) => setBase(onlyRate(e.target.value))} className={`${FIELD} w-20 text-right`} />
-          <span className="text-sm text-ink-soft">%</span>
-        </span>
+        <Input id="rewards-base" inputMode="decimal" value={base} placeholder="0"
+          onChange={(e) => setBase(onlyRate(e.target.value))} className={FIELD} />
+        <span className={UNIT}>%</span>
       </div>
 
       {rows.map((row, i) => (
-        <div key={row.category} className="flex items-center justify-between gap-3">
+        <div key={row.category} className={ROW}>
           <span className="min-w-0 truncate text-sm font-semibold text-ink">
             {row.category}
             {!categories.includes(row.category) && (
               <span className="ml-2 text-[10px] font-semibold uppercase tracking-widest text-ink-soft">Unused</span>
             )}
           </span>
-          <span className="flex items-center gap-1.5 shrink-0">
-            <Input inputMode="decimal" value={row.rate} aria-label={`${row.category} rate`}
-              onChange={(e) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, rate: onlyRate(e.target.value) } : r)))}
-              className={`${FIELD} w-20 text-right`} />
-            <span className="text-sm text-ink-soft">%</span>
-            <button type="button" aria-label={`Remove ${row.category}`}
-              onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
-              className="w-9 h-9 rounded-full flex items-center justify-center text-ink-soft hover:bg-sand transition-colors">
-              <X className="h-4 w-4" />
-            </button>
-          </span>
+          <Input inputMode="decimal" value={row.rate} aria-label={`${row.category} rate`}
+            onChange={(e) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, rate: onlyRate(e.target.value) } : r)))}
+            className={FIELD} />
+          <span className={UNIT}>%</span>
+          <button type="button" aria-label={`Remove ${row.category}`}
+            onClick={() => setRows((prev) => prev.filter((_, j) => j !== i))}
+            className="w-11 h-11 rounded-lg flex items-center justify-center text-ink-soft hover:bg-sand transition-colors">
+            <X className="h-4 w-4" />
+          </button>
         </div>
       ))}
 
       {unused.length > 0 && (
-        <div className="flex items-center gap-2 pt-1">
+        <div className={ROW}>
           <Select value={newCategory} onValueChange={setNewCategory}>
-            <SelectTrigger className="rounded-lg border-line bg-paper-card h-9 text-sm flex-1 min-w-0" aria-label="Category">
+            <SelectTrigger aria-label="Category">
               <SelectValue placeholder="Add category" />
             </SelectTrigger>
             <SelectContent>
@@ -98,17 +99,17 @@ export function CardRewardsEditor({
             </SelectContent>
           </Select>
           <Input inputMode="decimal" value={newRate} placeholder="0" aria-label="New category rate"
-            onChange={(e) => setNewRate(onlyRate(e.target.value))} className={`${FIELD} w-20 text-right`} />
-          <span className="text-sm text-ink-soft">%</span>
+            onChange={(e) => setNewRate(onlyRate(e.target.value))} className={FIELD} />
+          <span className={UNIT}>%</span>
           <button type="button" aria-label="Add category rate" onClick={addRow} disabled={!newCategory || !newRate}
-            className="w-9 h-9 shrink-0 rounded-full bg-ink text-paper flex items-center justify-center disabled:opacity-30">
+            className="w-11 h-11 rounded-lg bg-ink text-paper flex items-center justify-center disabled:opacity-30">
             <Plus className="h-4 w-4" />
           </button>
         </div>
       )}
 
       <button type="button" onClick={save} disabled={saving}
-        className="w-full h-12 rounded-full bg-accent text-white text-sm font-semibold uppercase tracking-widest flex items-center justify-center disabled:opacity-50">
+        className="w-full h-12 rounded-lg bg-accent text-white text-sm font-semibold uppercase tracking-widest flex items-center justify-center disabled:opacity-50">
         {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Save'}
       </button>
     </div>

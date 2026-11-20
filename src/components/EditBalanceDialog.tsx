@@ -109,7 +109,7 @@ export function EditBalanceDialog({ accountId, currentBalance, isLiability }: Ed
                 type="button"
                 onClick={handleContinue}
                 disabled={!valid}
-                className="inline-flex items-center justify-center rounded-md bg-ink text-paper text-sm font-medium h-10 px-4 disabled:opacity-40"
+                className="inline-flex items-center justify-center rounded-lg bg-ink text-paper text-sm font-semibold h-11 px-4 disabled:opacity-40"
               >
                 Continue
               </button>
