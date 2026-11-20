@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { ArrowRightLeft, Plus } from 'lucide-react';
+import { ArrowRightLeft, CreditCard, Plus } from 'lucide-react';
+import { PaymentDue } from '@/components/PaymentDue';
 import { AccountTypeIcon } from '@/components/AccountTypeIcon';
 import { BottomNav } from '@/components/BottomNav';
 import { QuickAddIsland } from '@/components/QuickAddIsland';
@@ -25,6 +26,7 @@ export default async function AccountsPage({
   ]);
 
   const { netWorth, totalAssets, totalLiabilities } = computeNetWorth(accounts);
+  const hasCreditCard = accounts.some((a) => a.type === 'credit_card');
 
   const groups = ACCOUNT_GROUPS.map((g) => ({
     label:       g.label,
@@ -89,15 +91,26 @@ export default async function AccountsPage({
           </section>
 
           {/* ── Transfer — inline action, not a top-bar icon ── */}
-          {accounts.length >= 2 && (
-            <div className="pb-5">
-              <Link
-                href="/transfer"
-                className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink transition-colors"
-              >
-                <ArrowRightLeft className="h-3 w-3" />
-                Transfer
-              </Link>
+          {(accounts.length >= 2 || hasCreditCard) && (
+            <div className="pb-5 flex items-center gap-5">
+              {accounts.length >= 2 && (
+                <Link
+                  href="/transfer"
+                  className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink transition-colors"
+                >
+                  <ArrowRightLeft className="h-3 w-3" />
+                  Transfer
+                </Link>
+              )}
+              {hasCreditCard && (
+                <Link
+                  href="/accounts/best-card"
+                  className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-ink-faint hover:text-ink transition-colors"
+                >
+                  <CreditCard className="h-3 w-3" />
+                  Best card
+                </Link>
+              )}
             </div>
           )}
 
@@ -137,9 +150,13 @@ export default async function AccountsPage({
                           <span className="block text-sm font-semibold text-ink truncate">
                             {account.name}
                           </span>
-                          {account.institution && (
+                          {(account.institution || account.nextDue) && (
                             <span className="block text-[10px] text-ink-faint/60 truncate">
                               {account.institution}
+                              {account.institution && account.nextDue && ' · '}
+                              {account.nextDue && (
+                                <PaymentDue next={account.nextDue} balance={account.balance} className="font-semibold" />
+                              )}
                             </span>
                           )}
                         </span>
